@@ -1,0 +1,13 @@
+#!/bin/bash
+set +h
+set -e
+
+cd $PKGDIR
+
+export DEBUG=-DNDEBUG INSTALL_USER=root INSTALL_GROUP=root LOCAL_CONFIGURE_OPTIONS="--enable-readline=yes --disable-gettext --libdir=/lib64 --libexecdir=/usr/lib64" LIBS="-lpthread"
+
+./Makepkgs verbose
+
+tar xvf build/tar/xfsprogs-3.0.0.tar.gz  -C $REALROOT_PT 
+
+exit

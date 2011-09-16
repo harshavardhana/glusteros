@@ -1,0 +1,12 @@
+#!/bin/bash
+set +h
+set -e
+
+cd $PKGDIR
+patch -p1 < ../parted-gcc43-fixes.patch
+
+./configure --prefix=/usr --libdir=/usr/lib64 
+make
+make install DESTDIR=$REALROOT_PT
+
+exit

@@ -1,0 +1,22 @@
+#!/tools/bin/bash
+set +h
+set -e
+
+echo $ARCH
+
+mkdir -pv $INITRAMFS_PT
+cd $INITRAMFS_PT
+mkdir -pv {bin,etc,lib,lib64,proc,sbin,sys,usr,tmp}
+mkdir -pv $INITRAMFS_PT/usr/lib64
+
+cp -v /usr/lib64/libgcc_s.so{,.1} $INITRAMFS_PT/usr/lib64
+cp -v /usr/lib64/libstdc++.so{,.6} $INITRAMFS_PT/usr/lib64
+cp -v /lib64/ld-linux-x86-64.so.2 $INITRAMFS_PT/lib64
+cp -v /lib64/libc.so.6 $INITRAMFS_PT/lib64
+cp -v /lib64/libm.so{,.6} $INITRAMFS_PT/lib64
+cp -v /lib64/libpthread.so.0 $INITRAMFS_PT/lib64
+cp -v /lib64/librt.so{,.1} $INITRAMFS_PT/lib64
+cp -v /lib64/libnss_* $INITRAMFS_PT/lib64
+cd /glustersp/glustersp-commands/initramfs/initramfs-skel
+find . | cpio -puvd $INITRAMFS_PT
+exit

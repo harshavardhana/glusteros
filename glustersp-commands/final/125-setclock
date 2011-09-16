@@ -1,0 +1,12 @@
+#!/bin/bash
+set +h
+set -e
+
+cat > /etc/sysconfig/clock << "EOF"
+# Begin /etc/sysconfig/clock
+
+UTC=1
+
+# End /etc/sysconfig/clock
+EOF
+exit

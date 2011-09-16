@@ -1,0 +1,11 @@
+#!/bin/bash
+set +h
+set -e
+
+cp -av /lib64/libbz2.so* $REALROOT_PT/lib64
+
+cp -av /bin/bzip2 $REALROOT_PT/bin/bzip2
+ln -sv bzip2 $REALROOT_PT/bin/bunzip2
+ln -sv /bin/bzip2 $REALROOT_PT/bin/bzcat
+
+exit

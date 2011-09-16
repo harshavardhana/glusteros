@@ -1,0 +1,10 @@
+#!/bin/bash
+set +h
+set -e
+
+cd $PKGDIR
+make DESTDIR= SBINDIR=/sbin
+make DESTDIR= SBINDIR=/sbin MANDIR=/usr/share/man \
+     DOCDIR=/usr/share/doc/iproute2-2.6.26 install
+mv -v /sbin/arpd /usr/sbin
+exit

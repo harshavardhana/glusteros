@@ -1,0 +1,7 @@
+#!/bin/bash
+set +h
+set -e
+
+cp -av /usr/sbin/rmt $REALROOT_PT/usr/sbin
+cp -av /bin/tar $REALROOT_PT/bin
+exit

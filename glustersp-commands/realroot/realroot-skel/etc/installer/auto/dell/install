@@ -1,0 +1,28 @@
+#!/bin/sh
+
+IMAGE="$1"
+
+echo Starting to partition
+
+parted -s -- /dev/sda mkpart primary ext3 0M 1024M
+parted -s -- /dev/sda mkpart linux-swap 1024M 5120M 
+parted -s -- /dev/sda mkpart primary ext3 5120M -1M
+
+echo Partition process complete
+sleep 10
+
+mkfs.ext3 /dev/sda1
+tune2fs -L "/" /dev/sda1
+
+echo "Filesystem for '/' is ready"
+
+sleep 2
+
+mkdir -p /tmp/installdir/
+mount /dev/sda1 /tmp/installdir/
+
+tar -xzf ${IMAGE} -C /tmp/installdir/
+
+sleep2
+
+chroot /tmp/installerdir/ sh -c 'mount /proc; grub-install /dev/sda; umount /proc'

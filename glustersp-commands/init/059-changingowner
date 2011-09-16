@@ -1,0 +1,9 @@
+#!/tools/bin/bash
+set +h
+set -e
+
+mkdir -pv /{dev,sys,proc}
+mknod -m 600 /dev/console c 5 1
+mknod -m 666 /dev/null c 1 3
+chown -R 0:0 /tools
+exit

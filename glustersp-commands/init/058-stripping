@@ -1,0 +1,7 @@
+#!/bin/bash
+set +h
+
+strip --strip-debug /tools/lib/*
+strip --strip-unneeded /tools/{,s}bin/* || true
+rm -rf /tools/{info,man}
+exit

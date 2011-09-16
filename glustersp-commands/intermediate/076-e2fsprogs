@@ -1,0 +1,16 @@
+#!/bin/bash
+set +h
+set -e
+
+cd $PKGDIR
+sed -i 's@/bin/rm@/tools&@' lib/blkid/test_probe.in
+mkdir -v build
+cd build
+export LDFLAGS="-L/lib64 -lpthread -ldl"
+../configure --prefix=/usr --with-root-prefix="" \
+    --enable-elf-shlibs --disable-rpath
+make
+make install
+make install-libs
+chmod -v u+w /usr/lib/{libblkid,libcom_err,libe2p,libext2fs,libss,libuuid}.a
+exit

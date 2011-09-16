@@ -1,0 +1,14 @@
+#!/tools/bin/bash
+set +h
+set -e
+
+cd $PKGDIR
+tar xvf ../linux-2.6.27.4.tar.bz2
+mv linux-2.6.27.4 linux
+cd linux 
+make allmodconfig
+make prepare
+cd ..
+make
+make install INSTALLROOT=$INITRAMFS_PT
+exit

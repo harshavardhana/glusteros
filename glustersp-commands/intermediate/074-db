@@ -1,0 +1,12 @@
+#!/bin/bash
+set +h
+set -e
+
+cd $PKGDIR
+patch -Np1 -i ../db-4.7.25-upstream_fixes-1.patch
+cd build_unix
+../dist/configure --prefix=/usr --enable-compat185 --enable-cxx
+make
+make docdir=/usr/share/doc/db-4.7.25 install
+chown -Rv root:root /usr/share/doc/db-4.7.25
+exit

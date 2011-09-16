@@ -1,0 +1,19 @@
+#!/bin/bash
+set +h
+set -e
+
+cd $PKGDIR
+sed -i 's@/etc/ld.so.preload@/tools/etc/ld.so.preload@' elf/rtld.c
+mkdir -v ../glibc-build
+cd ../glibc-build
+echo "CFLAGS += -march=native -mtune=native" > configparms
+../glibc-2.8-20080929/configure --prefix=/tools \
+    --disable-profile --enable-add-ons \
+    --enable-kernel=2.6.0 --with-binutils=/tools/bin \
+    --without-gd --with-headers=/tools/include \
+    --without-selinux
+make
+mkdir -pv /tools/etc
+touch /tools/etc/ld.so.conf
+make install
+exit

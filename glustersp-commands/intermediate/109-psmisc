@@ -1,0 +1,11 @@
+#!/bin/bash
+set +h
+set -e
+
+cd $PKGDIR
+./configure --prefix=/usr --exec-prefix=""
+make
+make install
+mv -v /bin/pstree* /usr/bin
+ln -sv killall /bin/pidof
+exit

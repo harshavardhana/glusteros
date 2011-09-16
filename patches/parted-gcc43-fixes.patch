@@ -1,0 +1,16 @@
+diff -pruN parted-1.8.8/include/parted/natmath.h parted-1.8.8-h/include/parted/natmath.h
+--- parted-1.8.8/include/parted/natmath.h	2007-07-23 10:58:31.000000000 -0700
++++ parted-1.8.8-h/include/parted/natmath.h	2009-03-20 12:38:13.000000000 -0700
+@@ -86,10 +86,10 @@ ped_alignment_is_aligned (const PedAlign
+ extern const PedAlignment* ped_alignment_any;
+ extern const PedAlignment* ped_alignment_none;
+ 
+-extern inline PedSector
++extern PedSector
+ ped_div_round_up (PedSector numerator, PedSector divisor);
+ 
+-extern inline PedSector
++extern PedSector
+ ped_div_round_to_nearest (PedSector numerator, PedSector divisor);
+ 
+ #endif /* PED_NATMATH_H_INCLUDED */

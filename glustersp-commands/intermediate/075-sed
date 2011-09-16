@@ -1,0 +1,9 @@
+#!/bin/bash
+set +h
+set -e
+
+cd $PKGDIR
+./configure --prefix=/usr --bindir=/bin --enable-html
+make
+make install
+exit

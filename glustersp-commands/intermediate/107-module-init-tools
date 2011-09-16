@@ -1,0 +1,10 @@
+#!/bin/bash
+set +h
+set -e
+
+cd $PKGDIR
+patch -Np1 -i ../module-init-tools-3.4.1-manpages-1.patch
+./configure --prefix=/ --enable-zlib --mandir=/usr/share/man
+make
+make INSTALL=install install
+exit

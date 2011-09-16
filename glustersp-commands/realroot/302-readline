@@ -1,0 +1,10 @@
+#!/bin/bash
+set +h
+set -e
+
+cp -av /usr/lib/lib{readline,history}.a $REALROOT_PT/usr/lib64
+cp -av /lib64/libreadline.so.5* $REALROOT_PT/lib64
+cp -av /lib64/libhistory.so.5* $REALROOT_PT/lib64
+cp -av /lib64/libreadline.so.5 $REALROOT_PT/usr/lib64/libreadline.so
+cp -av /lib64/libhistory.so.5 $REALROOT_PT/usr/lib64/libhistory.so
+exit

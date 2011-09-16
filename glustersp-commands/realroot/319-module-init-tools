@@ -1,0 +1,8 @@
+#!/bin/bash
+set +h
+set -e
+
+cd $PKGDIR
+cp -av /bin/lsmod $REALROOT_PT/bin
+cp -av /sbin/{insmod,modprobe,rmmod,depmod,modinfo,insmod.static,generate-modprobe.conf} $REALROOT_PT/sbin
+exit

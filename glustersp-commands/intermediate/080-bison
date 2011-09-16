@@ -1,0 +1,10 @@
+#!/bin/bash
+set +h
+set -e
+
+cd $PKGDIR
+./configure --prefix=/usr
+echo '#define YYENABLE_NLS 1' >> config.h
+make
+make install
+exit

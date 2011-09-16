@@ -1,0 +1,9 @@
+#!/bin/bash
+set +h
+set -e
+
+
+cp -av /usr/bin/{gawk,pgawk} $REALROOT_PT/usr/bin
+ln -sv gawk $REALROOT_PT/usr/bin/awk
+cp -av /usr/lib/awk $REALROOT_PT/usr/lib
+exit

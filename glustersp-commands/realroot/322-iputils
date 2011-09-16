@@ -1,0 +1,9 @@
+#!/bin/bash
+set +h
+set -e
+
+cd $PKGDIR
+make ping ping6 arping
+cp -av ping{,6} $REALROOT_PT/bin
+cp -av arping   $REALROOT_PT/sbin/
+exit

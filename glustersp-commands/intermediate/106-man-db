@@ -1,0 +1,28 @@
+#!/bin/bash
+set +h
+set -e
+
+cd $PKGDIR
+sed -i -e '\%\t/usr/man%d' -e '\%\t/usr/local/man%d' src/man_db.conf.in
+./configure --prefix=/usr --libexecdir=/usr/lib \
+    --sysconfdir=/etc --disable-setuid \
+    --enable-mb-groff --with-browser=/usr/bin/lynx \
+    --with-col=/usr/bin/col --with-vgrind=/usr/bin/vgrind \
+    --with-grap=/usr/bin/grap
+make
+make install
+cat >> convert-mans << "EOF"
+#!/bin/sh -e
+FROM="$1"
+TO="$2"
+shift ; shift
+while [ $# -gt 0 ]
+do
+        FILE="$1"
+        shift
+        iconv -f "$FROM" -t "$TO" "$FILE" >.tmp.iconv
+        mv .tmp.iconv "$FILE"
+done
+EOF
+install -m755 convert-mans  /usr/bin
+exit

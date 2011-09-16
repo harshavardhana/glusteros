@@ -1,0 +1,20 @@
+#!/bin/bash
+set +h
+set -e
+
+cd $REALROOT_PT
+/tools/bin/find {,usr/}{bin,lib,sbin} -type f -exec /tools/bin/strip --strip-debug --strip-unneeded '{}' ';' || true
+find . -name '*.h' -type f -exec rm -vf {} \;
+find . -type d -name man | xargs rm -rvf
+find . -type d -name info | xargs rm -rvf
+find . -type d -name doc | xargs rm -rvf
+find . -type d -name locale | xargs rm -rvf
+find . -type d -name gconv | xargs rm -rvf
+
+rm -f /realroot.gss.$ARCH.squashfs
+
+mkdir $REALROOT_PT/images
+cd /
+tar czf $REALROOT_PT/images/GlusterSP.tgz bin boot dev etc home lib lib64 media mnt opt proc root sbin srv sys tmp usr var
+mksquashfs $REALROOT_PT /realroot.gss.$ARCH.squashfs
+exit

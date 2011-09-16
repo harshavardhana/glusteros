@@ -1,0 +1,11 @@
+#!/bin/bash
+set +h
+set -e
+
+cd $PKGDIR
+./configure --prefix=/
+sed -i 's/docbook2man/echo/g' Makefile
+make
+cp -v lsmod $INITRAMFS_PT/bin
+cp -v {depmod,insmod,insmod.static,modinfo,modprobe,rmmod} $INITRAMFS_PT/sbin
+exit

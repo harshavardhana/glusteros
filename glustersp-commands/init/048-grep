@@ -1,0 +1,11 @@
+#!/bin/bash
+set +h
+set -e
+
+cd $PKGDIR
+./configure --prefix=/tools \
+    --disable-perl-regexp \
+    --without-included-regex
+make
+make install
+exit

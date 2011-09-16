@@ -1,0 +1,13 @@
+#!/bin/bash
+set +h
+set -e
+
+cd $PKGDIR
+for file in gzip.c lib/utimens.{c,h} ; do \
+   cp -v $file{,.orig}
+   sed 's/futimens/gl_&/' $file.orig > $file
+done
+./configure --prefix=/tools
+make
+make install
+exit

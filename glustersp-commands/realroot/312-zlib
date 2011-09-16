@@ -1,0 +1,8 @@
+#!/bin/bash
+set +h
+set -e
+
+cp -av /lib/libz.so.1* $REALROOT_PT/lib
+cp -av /usr/lib/libz.a $REALROOT_PT/usr/lib
+cp -av /usr/lib/libz.so $REALROOT_PT/usr/lib
+exit

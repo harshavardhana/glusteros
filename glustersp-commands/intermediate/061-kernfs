@@ -1,0 +1,13 @@
+#!/tools/bin/bash
+set +h
+set -e
+
+mkdir -pv /etc
+touch /etc/mtab
+mkdir -pv /dev/pts
+mkdir -pv /dev/shm
+mount -vt devpts devpts /dev/pts
+mount -vt tmpfs shm /dev/shm
+mount -vt proc proc /proc
+mount -vt sysfs sysfs /sys
+exit

@@ -1,0 +1,9 @@
+#!/bin/bash
+set +h
+set -e
+
+cp -av /bin/gzip $REALROOT_PT/bin
+cp -av /usr/bin/{gzexe,uncompress,zcmp,zdiff,zegrep} $REALROOT_PT/usr/bin
+cp -av /usr/bin/{zfgrep,zforce,zgrep,zless,zmore,znew} $REALROOT_PT/usr/bin
+
+exit

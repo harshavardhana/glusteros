@@ -1,0 +1,10 @@
+#!/bin/bash
+set +h
+set -e
+
+cd $PKGDIR
+./configure --prefix=/tools --without-ncurses
+make BLKID_LIBS="-L/tools/lib -lblkid -luuid" -C mount mount umount
+make -C text-utils more
+cp -v mount/{,u}mount text-utils/more /tools/bin
+exit

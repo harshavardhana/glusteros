@@ -1,0 +1,11 @@
+#!/bin/bash
+set +h
+set -e
+
+cd $PKGDIR
+patch -Np1 -i ../coreutils-6.12-old_build_kernel-1.patch
+./configure --prefix=/tools --enable-install-program=hostname
+make
+make install
+cp -v src/su /tools/bin/su-tools
+exit

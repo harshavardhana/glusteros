@@ -1,0 +1,20 @@
+#!/bin/sh
+
+_init ()
+{
+    exec 3>&1
+}
+
+main ()
+{    
+    desktop=$(ls /usr/bin/GStorageP);
+    
+    [ -f "${desktop}" ] || { 
+	dialog --colors --title "\Z1File Not Found" --msgbox "Gluster Storage Platform has corrupted 'GStorageP' \n\nSpawning shell in 3secs..." 0 0;
+	sleep 3;
+	exec /bin/bash --login;
+    }
+    exec ${desktop};
+}
+
+_init "$@" && main "$@"

@@ -1,0 +1,11 @@
+mk_BOOT
+mk_CHROOT
+mk_INITRAMFS
+mk_LUSER
+mk_REALROOT
+mk_SETUP
+mk_SUDO
+logs
+restore-luser-env
+*.sw?
+*~

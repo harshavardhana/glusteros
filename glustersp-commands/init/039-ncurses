@@ -1,0 +1,10 @@
+#!/bin/bash
+set +h
+set -e
+
+cd $PKGDIR
+./configure --prefix=/tools --with-shared \
+    --without-debug --without-ada --enable-overwrite
+make
+make install
+exit

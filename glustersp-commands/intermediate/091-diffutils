@@ -1,0 +1,11 @@
+#!/bin/bash
+set +h
+set -e
+
+cd $PKGDIR
+patch -Np1 -i ../diffutils-2.8.1-i18n-1.patch
+touch man/diff.1
+./configure --prefix=/usr
+make
+make install
+exit

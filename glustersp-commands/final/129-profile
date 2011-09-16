@@ -1,0 +1,12 @@
+#!/bin/bash
+set +h
+set -e
+
+cat > /etc/profile << "EOF"
+# Begin /etc/profile
+
+export LANG=en_IN
+
+# End /etc/profile
+EOF
+exit

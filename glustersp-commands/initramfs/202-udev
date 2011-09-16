@@ -1,0 +1,16 @@
+#!/bin/bash
+set +h
+set -e
+
+cd $PKGDIR
+./configure --prefix=/usr \
+            --exec-prefix= \
+            --sysconfdir=/etc
+make
+make install DESTDIR=$INITRAMFS_PT
+install -m644 -v rules/packages/64-*.rules \
+    /lib/udev/rules.d/
+install -m644 -v rules/packages/40-pilot-links.rules \
+    /lib/udev/rules.d/
+mv -v $INITRAMFS_PT/lib/libvolume_id.so.1* $INITRAMFS_PT/lib64
+exit

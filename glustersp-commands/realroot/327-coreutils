@@ -1,0 +1,12 @@
+#!/bin/bash
+set +h
+set -e
+
+cp -av /bin/{cat,chgrp,chmod,chown,cp,date,dd,df,echo} $REALROOT_PT/bin
+cp -av /bin/{false,hostname,ln,ls,mkdir,mknod,mv,pwd,readlink,rm} $REALROOT_PT/bin
+cp -av /bin/{rmdir,stty,sync,true,uname} $REALROOT_PT/bin
+cp -av /usr/sbin/chroot $REALROOT_PT/usr/sbin
+cp -av /bin/{head,sleep,nice} $REALROOT_PT/bin
+cp -av /usr/bin/{cut,tr} $REALROOT_PT/usr/bin
+
+exit

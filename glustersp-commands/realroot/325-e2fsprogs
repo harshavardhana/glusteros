@@ -1,0 +1,16 @@
+#!/bin/bash
+set +h
+set -e
+
+cd $PKGDIR
+sed -i 's@/bin/rm@/tools&@' lib/blkid/test_probe.in
+rm -rf build
+mkdir -pv build
+cd build
+export LDFLAGS="-L/lib64 -lpthread -ldl"
+../configure --prefix=/usr --with-root-prefix="" \
+    --enable-elf-shlibs --disable-rpath --libdir=/lib64
+make
+make install DESTDIR=$REALROOT_PT
+make install-libs DESTDIR=$REALROOT_PT
+exit

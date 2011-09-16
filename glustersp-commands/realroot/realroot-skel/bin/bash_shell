@@ -1,0 +1,13 @@
+#!/bin/bash
+
+kernel=$(uname -r)
+arch=$(uname -m)
+echo
+echo "Gluster Storage Platform 2009 (Alpha)"
+echo "Kernel ${kernel} on an ${arch}"
+echo 
+
+
+cd /;
+
+exec /bin/bash --login

@@ -1,0 +1,8 @@
+#!/bin/bash
+set +h
+set -e
+
+cp -av /bin/bash $REALROOT_PT/bin/bash
+cp -av /bin/sh $REALROOT_PT/bin/sh
+
+exit

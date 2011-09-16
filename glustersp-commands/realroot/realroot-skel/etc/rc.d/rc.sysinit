@@ -1,0 +1,65 @@
+#!/bin/sh
+# Copyright (C) 2009 Z RESEARCH Inc. <http://www.zresearch.com>
+# This file is part of Gluster Storage Appliance.
+#  
+# GlusterStorageSystem is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+#  
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#  
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
+#  
+
+echo "   -= Gluster Storage Platform Stage-2 (continue from /sbin/init) =-"
+
+export PATH=/bin:/sbin:/usr/sbin:/usr/bin
+export LD_LIBRARY_PATH=/lib:/usr/lib:/lib64:/usr/lib64
+
+echo " * Sanitizing environment "
+cd /
+depmod -a
+mkdir -p /var/tmp/session
+chown -R root / 2>/dev/null
+chmod 777 /var/tmp
+mkdir -p /tmp
+chmod 777 /tmp
+mkdir -p /mnt
+cp -f /usr/bin/dialog /usr/bin/dialog.bin
+cat > /usr/bin/dialog <<EOF
+#!/bin/sh
+/usr/bin/dialog.bin --backtitle 'Gluster Storage Platform 2009 (Alpha)                 Copyright (c) 2009 Z RESEARCH Inc.' --aspect 32 "\$@"
+EOF
+echo "" > /var/log/install.log
+
+
+echo " * Triggering udev"
+echo "" > /proc/sys/kernel/hotplug
+#/sbin/udevd --daemon
+/sbin/udevadm trigger
+
+echo " * Creating necessary links inside /dev"
+ln -snf /proc/self/fd /dev/fd
+ln -snf /proc/self/fd/0 /dev/stdin
+ln -snf /proc/self/fd/1 /dev/stdout
+ln -snf /proc/self/fd/2 /dev/stderr
+mkdir -p /dev/pts
+mkdir -p /dev/shm
+
+echo " * Settle udev"
+/sbin/udevadm settle
+mount -t devpts devpts /dev/pts
+mount -t tmpfs tmpfs /dev/shm
+
+echo " * Loading legacy modules ..."
+/etc/rc.d/rc.modules
+
+echo " * Disabling console blanking ..."
+setterm -blank 0
+

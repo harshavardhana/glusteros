@@ -1,0 +1,8 @@
+set +h
+umask 022
+GLUSTERSP=/mnt/lfs
+LC_ALL=POSIX
+PATH=/tools/bin:/bin:/usr/bin
+export GLUSTERSP LC_ALL PATH
+source /mnt/lfs/glustersp/envars
+

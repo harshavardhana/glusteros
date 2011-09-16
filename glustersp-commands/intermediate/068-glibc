@@ -1,0 +1,47 @@
+#!/bin/bash
+set +h
+set -e
+
+cd $PKGDIR
+sed -i '/vi_VN.TCVN/d' localedata/SUPPORTED
+patch -Np1 -i ../glibc-2.8-20080929-iconv_tests-1.patch
+patch -Np1 -i ../glibc-2.8-20080929-ildoubl_test-1.patch
+sed -i 's|@BASH@|/bin/bash|' elf/ldd.bash.in
+mkdir -v ../glibc-build
+cd ../glibc-build
+echo "CFLAGS += -march=native -mtune=native" > configparms
+../glibc-2.8-20080929/configure --prefix=/usr \
+    --disable-profile --enable-add-ons \
+    --enable-kernel=2.6.0 --libexecdir=/usr/lib/glibc
+make
+touch /etc/ld.so.conf
+make install
+make localedata/install-locales
+cat > /etc/nsswitch.conf << "EOF"
+# Begin /etc/nsswitch.conf
+
+passwd: files
+group: files
+shadow: files
+
+hosts: files dns
+networks: files
+
+protocols: files
+services: files
+ethers: files
+rpc: files
+
+# End /etc/nsswitch.conf
+EOF
+cp -v --remove-destination /usr/share/zoneinfo/GMT \
+    /etc/localtime
+cat > /etc/ld.so.conf << "EOF"
+# Begin /etc/ld.so.conf
+
+/usr/local/lib
+/opt/lib
+
+# End /etc/ld.so.conf
+EOF
+exit

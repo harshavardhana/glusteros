@@ -1,0 +1,10 @@
+#!/bin/bash
+set +h
+set -e
+
+cd $PKGDIR
+cp -av /usr/bin/{uptime,tload,free,w,top,vmstat,watch,skill,snice,pmap,pgrep,pkill,slabtop,pwdx} $REALROOT_PT/usr/bin
+cp -av /bin/kill $REALROOT_PT/bin/kill
+cp -av /sbin/sysctl $REALROOT_PT/sbin/sysctl
+cp -av /lib64/libproc-3.2.7.so $REALROOT_PT/lib64
+exit

@@ -1,0 +1,11 @@
+#!/bin/bash
+set +h
+set -e
+
+cd $PKGDIR
+LDFLAGS="-L/lib64 -L/usr/lib64"
+./configure --prefix=/usr
+make
+make install DESTDIR=$REALROOT_PT
+cp -av $REALROOT_PT/usr/bin/dialog $REALROT_PT/usr/bin/dialog.bin
+exit

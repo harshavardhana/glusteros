@@ -1,0 +1,16 @@
+#!/bin/bash
+set +h
+set -e
+
+cd $PKGDIR
+sed -i '/MV.*old/d' Makefile.in
+sed -i '/{OLDSUFF}/c:' support/shlib-install
+patch -Np1 -i ../readline-5.2-fixes-5.patch
+./configure --prefix=/usr --libdir=/lib64
+make SHLIB_LIBS=-lncurses
+make install
+mv -v /lib64/lib{readline,history}.a /usr/lib
+ln -sfv ../../lib64/libreadline.so.5 /usr/lib/libreadline.so
+ln -sfv ../../lib64/libhistory.so.5 /usr/lib/libhistory.so
+
+exit

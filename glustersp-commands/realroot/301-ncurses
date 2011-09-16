@@ -1,0 +1,10 @@
+#!/bin/bash
+set +h
+set -e
+
+cp -av /usr/lib/libncurses*.a $REALROOT_PT/usr/lib64
+cp -av /lib/libncursesw.so.5* $REALROOT_PT/lib64
+cp -av /usr/lib/libncursesw.so $REALROOT_PT/usr/lib64
+echo "INPUT(-lncursesw)" > $REALROOT_PT/usr/lib64/libcurses.so
+cp -av /usr/share/terminfo $REALROOT_PT/usr/share
+exit

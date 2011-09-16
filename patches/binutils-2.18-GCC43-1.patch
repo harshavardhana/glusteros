@@ -1,0 +1,39 @@
+Submitted By:            Randy McMurchy (randy at linuxfromscratch dot org)
+Date:                    2008-09-26
+Initial Package Version: 2.18
+Origin:                  http://sourceware.org/ml/binutils/2008-02/msg00151.html
+Upstream Status:         Applied
+Description:             Fixes an error in the testsuite when using GCC-4.3.x
+
+
+diff -Naur binutils-2.18-orig/ld/testsuite/ld-shared/sh1.c binutils-2.18/ld/testsuite/ld-shared/sh1.c
+--- binutils-2.18-orig/ld/testsuite/ld-shared/sh1.c	1999-06-09 03:04:03.000000000 +0000
++++ binutils-2.18/ld/testsuite/ld-shared/sh1.c	2008-09-26 19:49:22.000000000 +0000
+@@ -71,12 +71,6 @@
+ {
+   return shlib_overriddencall2 ();
+ }
+-
+-int
+-shlib_overriddencall2 ()
+-{
+-  return 7;
+-}
+ #endif
+ 
+ /* This function calls a function defined by the main program.  */
+diff -Naur binutils-2.18-orig/ld/testsuite/ld-shared/sh2.c binutils-2.18/ld/testsuite/ld-shared/sh2.c
+--- binutils-2.18-orig/ld/testsuite/ld-shared/sh2.c	1999-05-03 07:29:09.000000000 +0000
++++ binutils-2.18/ld/testsuite/ld-shared/sh2.c	2008-09-26 19:49:22.000000000 +0000
+@@ -12,3 +12,11 @@
+ {
+   return 5;
+ }
++
++#ifndef XCOFF_TEST
++int
++shlib_overriddencall2 ()
++{
++  return 7;
++}
++#endif

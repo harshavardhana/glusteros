@@ -1,0 +1,9 @@
+#!/bin/bash
+set +h
+set -e
+
+cd $PKGDIR
+./configure --prefix=/tools ac_cv_func_working_mktime=yes
+make
+make install
+exit

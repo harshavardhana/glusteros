@@ -1,0 +1,15 @@
+#!/bin/bash
+set +h
+set -e
+
+cd $PKGDIR
+patch -Np1 -i ../expect-5.43.0-spawn-1.patch
+patch -Np1 -i ../expect-5.43.0-tcl_8.5.5_fix-1.patch
+cp -v configure{,.orig}
+sed 's:/usr/local/bin:/bin:' configure.orig > configure
+./configure --prefix=/tools --with-tcl=/tools/lib \
+  --with-tclinclude=/tools/include --with-x=no
+make
+make test
+make SCRIPTS="" install
+exit

@@ -1,0 +1,19 @@
+#!/bin/bash
+set +h
+set -e
+
+cd $PKGDIR
+groupadd -g 25 apache &&
+useradd -c "Apache Server" -d /dev/null -g apache -s /bin/false -u 25 apache
+patch -Np1 -i ../httpd-2.2.8-config-1.patch
+./configure --enable-layout=FHS #--enable-mods-shared=all
+make
+make install 
+chown -v root:root /usr/lib/apache/httpd.exp \
+    /usr/sbin/{apxs,apachectl,dbmmanage,envvars{,-std}}
+
+chown -v -R apache:apache /srv/www
+sed -i -e "s/User daemon/User apache/" -e "s/Group daemon/Group apache/" /etc/apache/httpd.conf
+sed -i "s/^LoadModule isapi_module/# &/"  /etc/apache/httpd.conf
+
+exit

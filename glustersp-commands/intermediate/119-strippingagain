@@ -1,0 +1,6 @@
+#!/tools/bin/bash
+set +h
+
+/tools/bin/find /{,usr/}{bin,lib,sbin} -type f \
+  -exec /tools/bin/strip --strip-debug '{}' ';' || true
+exit

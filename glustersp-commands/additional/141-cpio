@@ -1,0 +1,14 @@
+#!/bin/bash
+set +h
+set -e
+
+cd $PKGDIR
+patch -p1 < ../cpio-2.9-gcc43-fix.patch
+./configure CPIO_MT_PROG=mt \
+    --prefix=/usr \
+    --bindir=/bin \
+    --libexecdir=/tmp \
+    --with-rmt=/usr/sbin/rmt &&
+make
+make install 
+exit

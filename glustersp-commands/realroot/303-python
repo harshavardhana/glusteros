@@ -1,0 +1,16 @@
+#!/bin/bash
+set +h
+set -e
+
+cd $PKGDIR
+sed 's/\$(exec_prefix)\/lib/\$(exec_prefix)\/lib64/g' -i Makefile.pre.in
+sed 's/\$(prefix)\/lib/\$(prefix)\/lib64/g' -i Makefile.pre.in
+export LDFLAGS="-L/lib64 -L/usr/lib64"
+./configure --prefix=/usr --enable-shared
+make
+make install DESTDIR=$REALROOT_PT
+find $REALROOT_PT/usr/lib64/python2.5 -name '*.py' -exec rm -vf {} \; ; find $REALROOT_PT/usr/lib64/python2.5 -name '*.pyo' -exec rm -vf {} \;
+cp -av $REALROOT_PT/usr/lib64/python2.5/* $REALROOT_PT/usr/lib/python2.5/
+rm -rvf $REALROOT_PT/usr/lib64/python2.5
+
+exit

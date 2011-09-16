@@ -1,0 +1,14 @@
+#!/bin/bash
+set +h
+set -e
+
+cd $PKGDIR
+cd unix
+./configure --prefix=/tools
+make
+TZ=UTC make test
+make install
+chmod -v u+w /tools/lib/libtcl8.5.so
+make install-private-headers
+ln -sv tclsh8.5 /tools/bin/tclsh
+exit

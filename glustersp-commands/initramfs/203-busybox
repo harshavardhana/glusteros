@@ -1,0 +1,15 @@
+#!/bin/bash
+set +h
+set -e
+
+cd $PKGDIR
+make defconfig
+make 
+cp -v busybox $INITRAMFS_PT/bin
+cp -v $INITRAMFS_PT/bin/busybox $INITRAMFS_PT/bin/losetup 
+cp -v $INITRAMFS_PT/bin/busybox $INITRAMFS_PT/bin/sh
+cp -v $INITRAMFS_PT/bin/busybox $INITRAMFS_PT/bin/tr
+cp -v $INITRAMFS_PT/bin/busybox $INITRAMFS_PT/bin/grep
+cp -v $INITRAMFS_PT/bin/busybox $INITRAMFS_PT/bin/cp
+
+exit

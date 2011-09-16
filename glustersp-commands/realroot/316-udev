@@ -1,0 +1,16 @@
+#!/bin/bash
+set +h
+set -e
+
+cd $PKGDIR
+./configure --prefix=/usr \
+            --exec-prefix= \
+            --sysconfdir=/etc
+make
+make install DESTDIR=$REALROOT_PT
+install -m644 -v rules/packages/64-*.rules \
+    $REALROOT_PT/lib/udev/rules.d/
+install -m644 -v rules/packages/40-pilot-links.rules \
+    $REALROOT_PT/lib/udev/rules.d/
+mv -v $REALROOT_PT/lib/libvolume_id.so.1* $REALROOT_PT/lib64
+exit

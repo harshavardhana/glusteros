@@ -1,0 +1,17 @@
+#!/bin/bash
+set +h
+set -e
+
+cd $INITRAMFS_PT
+cp -afv /lib/modules $INITRAMFS_PT/lib/
+cp -afv /lib/firmware $INITRAMFS_PT/lib/
+/tools/bin/find {,usr/}{bin,lib,sbin} -type f -exec /tools/bin/strip --strip-debug --strip-unneeded '{}' ';' || true
+find . -name '*.h' -type f -exec rm -vf {} \;
+find . -type d -name man | xargs rm -rvf
+find . -type d -name info | xargs rm -rvf
+find . -type d -name doc | xargs rm -rvf
+find . -type d -name locale | xargs rm -rvf
+find . -type d -name gconv | xargs rm -rvf
+
+find . | cpio -H newc -o | gzip -9 > /initramfs.gss.$ARCH.gz
+exit

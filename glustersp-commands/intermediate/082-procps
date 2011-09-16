@@ -1,0 +1,9 @@
+#!/bin/bash
+set +h
+set -e
+
+cd $PKGDIR
+patch -Np1 -i ../procps-3.2.7-watch_unicode-1.patch
+make
+make install
+exit

@@ -1,0 +1,2448 @@
+Submitted by: Alexander E. Patrakov
+Date: 2005-08-13
+Initial Package Version: 2.8.7
+Upstream Status: Unknown
+Origin: OpenI18n
+Description: Fixes treatment of whitespace in multibyte locales. 
+diff -Naur diffutils-2.8.7.orig/src/diff.c diffutils-2.8.7/src/diff.c
+--- diffutils-2.8.7.orig/src/diff.c	2004-04-12 07:44:35.000000000 +0000
++++ diffutils-2.8.7/src/diff.c	2006-01-18 02:40:15.000000000 +0000
+@@ -273,6 +273,13 @@
+   re_set_syntax (RE_SYNTAX_GREP | RE_NO_POSIX_BACKTRACKING);
+   excluded = new_exclude ();
+ 
++#ifdef HANDLE_MULTIBYTE
++  if (MB_CUR_MAX > 1)
++    lines_differ = lines_differ_multibyte;
++  else
++    lines_differ = lines_differ_singlebyte;
++#endif
++
+   /* Decode the options.  */
+ 
+   while ((c = getopt_long (argc, argv, shortopts, longopts, 0)) != -1)
+diff -Naur diffutils-2.8.7.orig/src/diff.h diffutils-2.8.7/src/diff.h
+--- diffutils-2.8.7.orig/src/diff.h	2004-04-12 07:44:35.000000000 +0000
++++ diffutils-2.8.7/src/diff.h	2006-01-18 02:40:15.000000000 +0000
+@@ -25,6 +25,19 @@
+ #include <stdio.h>
+ #include <unlocked-io.h>
+ 
++/* For platform which support the ISO C amendement 1 functionality we
++   support user defined character classes.  */
++#if defined HAVE_WCTYPE_H && defined HAVE_WCHAR_H
++/* Solaris 2.5 has a bug: <wchar.h> must be included before <wctype.h>.  */
++# include <wchar.h>
++# include <wctype.h>
++# if defined (HAVE_MBRTOWC)
++#  define HANDLE_MULTIBYTE      1
++# endif
++#endif
++
++#define TAB_WIDTH 8
++
+ /* What kind of changes a hunk contains.  */
+ enum changes
+ {
+@@ -352,7 +365,13 @@
+ extern char const pr_program[];
+ char *concat (char const *, char const *, char const *);
+ char *dir_file_pathname (char const *, char const *);
+-bool lines_differ (char const *, char const *);
++
++bool (*lines_differ) (char const *, char const *);
++bool lines_differ_singlebyte (char const *, char const *);
++#ifdef HANDLE_MULTIBYTE
++bool lines_differ_multibyte (char const *, char const *);
++#endif
++
+ lin translate_line_number (struct file_data const *, lin);
+ struct change *find_change (struct change *);
+ struct change *find_reverse_change (struct change *);
+diff -Naur diffutils-2.8.7.orig/src/io.c diffutils-2.8.7/src/io.c
+--- diffutils-2.8.7.orig/src/io.c	2004-04-12 07:44:35.000000000 +0000
++++ diffutils-2.8.7/src/io.c	2006-01-18 02:40:15.000000000 +0000
+@@ -25,6 +25,7 @@
+ #include <file-type.h>
+ #include <setmode.h>
+ #include <xalloc.h>
++#include <assert.h>
+ 
+ /* Rotate an unsigned value to the left.  */
+ #define ROL(v, n) ((v) << (n) | (v) >> (sizeof (v) * CHAR_BIT - (n)))
+@@ -212,6 +213,28 @@
+ 
+ /* Split the file into lines, simultaneously computing the equivalence
+    class for each line.  */
++#ifdef HANDLE_MULTIBYTE
++# define MBC2WC(P, END, MBLENGTH, WC, STATE, CONVFAIL)			\
++do									\
++{									\
++    mbstate_t state_bak = STATE;					\
++									\
++    CONVFAIL = 0;							\
++    MBLENGTH = mbrtowc (&WC, P, END - (char const *)P, &STATE);		\
++									\
++    switch (MBLENGTH)							\
++      {									\
++      case (size_t)-2:							\
++      case (size_t)-1:							\
++	STATE = state_bak;						\
++	++CONVFAIL;							\
++	  /* Fall through. */						\
++      case 0:								\
++	MBLENGTH = 1;							\
++      }									\
++}									\
++while (0)
++#endif
+ 
+ static void
+ find_and_hash_each_line (struct file_data *current)
+@@ -238,12 +261,280 @@
+   bool same_length_diff_contents_compare_anyway =
+     diff_length_compare_anyway | ignore_case;
+ 
++#ifdef HANDLE_MULTIBYTE
++  wchar_t   wc;
++  size_t    mblength;
++  mbstate_t state;
++  int       convfail;
++ 
++  memset (&state, '\0', sizeof (mbstate_t));
++#endif
++
+   while (p < suffix_begin)
+     {
+       char const *ip = p;
+ 
+       h = 0;
+-
++#ifdef HANDLE_MULTIBYTE
++      if (MB_CUR_MAX > 1)
++       {
++         wchar_t   lo_wc;
++         char      mbc[MB_LEN_MAX];
++         mbstate_t state_wc;
++
++         /* Hash this line until we find a newline.  */
++         switch (ignore_white_space)
++           {
++           case IGNORE_ALL_SPACE:
++             while (1)
++               {
++                 if (*p == '\n')
++                   {
++                     ++p;
++                     break;
++                   }
++
++                 MBC2WC (p, suffix_begin, mblength, wc, state, convfail);
++
++                 if (convfail)
++                   mbc[0] = *p++;
++                 else if (!iswspace (wc))
++                   {
++                     bool flag = 0;
++
++                     if (ignore_case)
++                       {
++                         lo_wc = towlower (wc);
++                         if (lo_wc != wc)
++                           {
++                             flag = 1;
++
++                             p += mblength;
++                             memset (&state_wc, '\0', sizeof(mbstate_t));
++                             mblength = wcrtomb (mbc, lo_wc, &state_wc);
++
++                             assert (mblength != (size_t)-1 &&
++                                 mblength != (size_t)-2);
++
++                             mblength = (mblength < 1) ? 1 : mblength;
++                           }
++                       }
++
++                     if (!flag)
++                       {
++                         for (i = 0; i < mblength; i++)
++                           mbc[i] =  *p++;
++                       }
++                   }
++                 else
++                   {
++                     p += mblength; 
++                     continue;
++                   }
++
++                 for (i = 0; i < mblength; i++) 
++                   h = HASH (h, mbc[i]);
++               }
++             break;
++
++           case IGNORE_SPACE_CHANGE:
++             while (1)
++               {
++                 if (*p == '\n')
++                   {
++                     ++p;
++                     break;
++                   }
++
++                 MBC2WC (p, suffix_begin, mblength, wc, state, convfail);
++
++                 if (!convfail && iswspace (wc))
++                   {
++                     while (1)
++                       {
++                         if (*p == '\n')
++                           {
++                             ++p;
++                             goto hashing_done;
++                           }
++
++                         p += mblength;
++                         MBC2WC (p, suffix_begin, mblength, wc, state, convfail);
++                         if (convfail || (!convfail && !iswspace (wc)))
++                           break;
++                       }
++                     h = HASH (h, ' ');
++                   }
++
++                 /* WC is now the first non-space.  */
++                 if (convfail) 
++                   mbc[0] = *p++;
++                 else
++                   {
++                     bool flag = 0;
++
++                     if (ignore_case)
++                       {
++                         lo_wc = towlower (wc);
++                         if (lo_wc != wc)
++                           {
++                             flag = 1;
++
++                             p += mblength;
++                             memset (&state_wc, '\0', sizeof(mbstate_t));
++                             mblength = wcrtomb (mbc, lo_wc, &state_wc);
++
++                             assert (mblength != (size_t)-1 &&
++                                 mblength != (size_t)-2);
++
++                             mblength = (mblength < 1) ? 1 : mblength;
++                           }
++                       }
++
++                     if (!flag)
++                       {
++                         for (i = 0; i < mblength; i++)
++                           mbc[i] = *p++;
++                       }
++                   }
++
++                 for (i = 0; i < mblength; i++)
++                   h = HASH (h, mbc[i]);
++               }
++             break;
++
++           case IGNORE_TAB_EXPANSION: 
++               {
++                 size_t column = 0; 
++
++                 while (1)
++                   {
++                     if (*p == '\n')
++                       {
++                         ++p;
++                         break;
++                       }
++
++                     MBC2WC (p, suffix_begin, mblength, wc, state, convfail);
++
++                     if (convfail)
++                       {
++                         h = HASH (h, *p++);
++                         ++column;
++                       }
++                     else
++                       {
++                         bool flag;
++
++                         switch (wc)
++                           {
++                           case L'\b':
++                             column -= 0 < column;
++                             h = HASH (h, '\b');
++                             ++p;
++                             break;
++
++                           case L'\t':
++                               {
++                                 int repetitions;
++
++                                 repetitions = TAB_WIDTH - column % TAB_WIDTH;
++                                 column += repetitions;
++                                 do
++                                   h = HASH (h, ' ');
++                                 while (--repetitions != 0);
++                                 ++p;
++                               }
++                             break;
++
++                           case L'\r':
++                             column = 0;
++                             h = HASH (h, '\r');
++                             ++p;
++                             break;
++
++                           default:
++                             flag = 0;
++                             column += wcwidth (wc);
++                             if (ignore_case)
++                               {
++                                 lo_wc = towlower (wc);
++                                 if (lo_wc != wc)
++                                   {
++                                     flag = 1;
++                                     p += mblength;
++                                     memset (&state_wc, '\0', sizeof(mbstate_t));
++                                     mblength = wcrtomb (mbc, lo_wc, &state_wc);
++
++                                     assert (mblength != (size_t)-1 &&
++                                         mblength != (size_t)-2);
++
++                                     mblength = (mblength < 1) ? 1 : mblength;
++                                   }
++                               }
++
++                             if (!flag)
++                               {
++                                 for (i = 0; i < mblength; i++)
++                                   mbc[i] = *p++;
++                               }
++
++                             for (i = 0; i < mblength; i++)
++                               h = HASH (h, mbc[i]);
++                           }
++                       }
++                   }
++               }
++             break;
++
++           default:
++             while (1)
++               {
++                 if (*p == '\n')
++                   {
++                     ++p;
++                     break;
++                   }
++
++                 MBC2WC (p, suffix_begin, mblength, wc, state, convfail);
++
++                 if (convfail)
++                   mbc[0] = *p++;
++                 else
++                   {
++                     int flag = 0;
++
++                     if (ignore_case)
++                       {
++                         lo_wc = towlower (wc);
++                         if (lo_wc != wc)
++                           {
++                             flag = 1;
++                             p += mblength;
++                             memset (&state_wc, '\0', sizeof(mbstate_t));
++                             mblength = wcrtomb (mbc, lo_wc, &state_wc);
++
++                             assert (mblength != (size_t)-1 &&
++                                 mblength != (size_t)-2);
++
++                             mblength = (mblength < 1) ? 1 : mblength;
++                           }
++                       }
++
++                     if (!flag)
++                       {
++                         for (i = 0; i < mblength; i++)
++                           mbc[i] = *p++;
++                       }
++                   }
++
++                 for (i = 0; i < mblength; i++)
++                   h = HASH (h, mbc[i]);
++               }
++           }
++       }
++      else
++#endif
+       /* Hash this line until we find a newline.  */
+       if (ignore_case)
+ 	switch (ignore_white_space)
+diff -Naur diffutils-2.8.7.orig/src/io.c~ diffutils-2.8.7/src/io.c~
+--- diffutils-2.8.7.orig/src/io.c~	1970-01-01 00:00:00.000000000 +0000
++++ diffutils-2.8.7/src/io.c~	2004-04-12 07:44:35.000000000 +0000
+@@ -0,0 +1,859 @@
++/* File I/O for GNU DIFF.
++
++   Copyright (C) 1988, 1989, 1992, 1993, 1994, 1995, 1998, 2001, 2002,
++   2004 Free Software Foundation, Inc.
++
++   This file is part of GNU DIFF.
++
++   GNU DIFF is free software; you can redistribute it and/or modify
++   it under the terms of the GNU General Public License as published by
++   the Free Software Foundation; either version 2, or (at your option)
++   any later version.
++
++   GNU DIFF is distributed in the hope that it will be useful,
++   but WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++   GNU General Public License for more details.
++
++   You should have received a copy of the GNU General Public License
++   along with this program; see the file COPYING.
++   If not, write to the Free Software Foundation,
++   59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  */
++
++#include "diff.h"
++#include <cmpbuf.h>
++#include <file-type.h>
++#include <setmode.h>
++#include <xalloc.h>
++
++/* Rotate an unsigned value to the left.  */
++#define ROL(v, n) ((v) << (n) | (v) >> (sizeof (v) * CHAR_BIT - (n)))
++
++/* Given a hash value and a new character, return a new hash value.  */
++#define HASH(h, c) ((c) + ROL (h, 7))
++
++/* The type of a hash value.  */
++typedef size_t hash_value;
++verify (hash_value_is_unsigned, ! TYPE_SIGNED (hash_value));
++
++/* Lines are put into equivalence classes of lines that match in lines_differ.
++   Each equivalence class is represented by one of these structures,
++   but only while the classes are being computed.
++   Afterward, each class is represented by a number.  */
++struct equivclass
++{
++  lin next;		/* Next item in this bucket.  */
++  hash_value hash;	/* Hash of lines in this class.  */
++  char const *line;	/* A line that fits this class.  */
++  size_t length;	/* That line's length, not counting its newline.  */
++};
++
++/* Hash-table: array of buckets, each being a chain of equivalence classes.
++   buckets[-1] is reserved for incomplete lines.  */
++static lin *buckets;
++
++/* Number of buckets in the hash table array, not counting buckets[-1].  */
++static size_t nbuckets;
++
++/* Array in which the equivalence classes are allocated.
++   The bucket-chains go through the elements in this array.
++   The number of an equivalence class is its index in this array.  */
++static struct equivclass *equivs;
++
++/* Index of first free element in the array `equivs'.  */
++static lin equivs_index;
++
++/* Number of elements allocated in the array `equivs'.  */
++static lin equivs_alloc;
++
++/* Read a block of data into a file buffer, checking for EOF and error.  */
++
++void
++file_block_read (struct file_data *current, size_t size)
++{
++  if (size && ! current->eof)
++    {
++      size_t s = block_read (current->desc,
++			     FILE_BUFFER (current) + current->buffered, size);
++      if (s == SIZE_MAX)
++	pfatal_with_name (current->name);
++      current->buffered += s;
++      current->eof = s < size;
++    }
++}
++
++/* Check for binary files and compare them for exact identity.  */
++
++/* Return 1 if BUF contains a non text character.
++   SIZE is the number of characters in BUF.  */
++
++#define binary_file_p(buf, size) (memchr (buf, 0, size) != 0)
++
++/* Get ready to read the current file.
++   Return nonzero if SKIP_TEST is zero,
++   and if it appears to be a binary file.  */
++
++static bool
++sip (struct file_data *current, bool skip_test)
++{
++  /* If we have a nonexistent file at this stage, treat it as empty.  */
++  if (current->desc < 0)
++    {
++      /* Leave room for a sentinel.  */
++      current->bufsize = sizeof (word);
++      current->buffer = xmalloc (current->bufsize);
++    }
++  else
++    {
++      current->bufsize = buffer_lcm (sizeof (word),
++				     STAT_BLOCKSIZE (current->stat),
++				     PTRDIFF_MAX - 2 * sizeof (word));
++      current->buffer = xmalloc (current->bufsize);
++
++      if (! skip_test)
++	{
++	  /* Check first part of file to see if it's a binary file.  */
++
++	  bool was_binary = set_binary_mode (current->desc, true);
++	  off_t buffered;
++	  file_block_read (current, current->bufsize);
++	  buffered = current->buffered;
++
++	  if (! was_binary)
++	    {
++	      /* Revert to text mode and seek back to the beginning to
++		 reread the file.  Use relative seek, since file
++		 descriptors like stdin might not start at offset
++		 zero.  */
++
++	      if (lseek (current->desc, - buffered, SEEK_CUR) == -1)
++		pfatal_with_name (current->name);
++	      set_binary_mode (current->desc, false);
++	      current->buffered = 0;
++	      current->eof = false;
++	    }
++
++	  return binary_file_p (current->buffer, buffered);
++	}
++    }
++
++  current->buffered = 0;
++  current->eof = false;
++  return false;
++}
++
++/* Slurp the rest of the current file completely into memory.  */
++
++static void
++slurp (struct file_data *current)
++{
++  size_t cc;
++
++  if (current->desc < 0)
++    {
++      /* The file is nonexistent.  */
++      return;
++    }
++
++  if (S_ISREG (current->stat.st_mode))
++    {
++      /* It's a regular file; slurp in the rest all at once.  */
++
++      /* Get the size out of the stat block.
++	 Allocate just enough room for appended newline plus word sentinel,
++	 plus word-alignment since we want the buffer word-aligned.  */
++      size_t file_size = current->stat.st_size;
++      cc = file_size + 2 * sizeof (word) - file_size % sizeof (word);
++      if (file_size != current->stat.st_size || cc < file_size
++	  || PTRDIFF_MAX <= cc)
++	xalloc_die ();
++
++      if (current->bufsize < cc)
++	{
++	  current->bufsize = cc;
++	  current->buffer = xrealloc (current->buffer, cc);
++	}
++
++      /* Try to read at least 1 more byte than the size indicates, to
++	 detect whether the file is growing.  This is a nicety for
++	 users who run 'diff' on files while they are changing.  */
++
++      if (current->buffered <= file_size)
++	{
++	  file_block_read (current, file_size + 1 - current->buffered);
++	  if (current->buffered <= file_size)
++	    return;
++	}
++    }
++
++  /* It's not a regular file, or it's a growing regular file; read it,
++     growing the buffer as needed.  */
++
++  file_block_read (current, current->bufsize - current->buffered);
++
++  if (current->buffered)
++    {
++      while (current->buffered == current->bufsize)
++	{
++	  if (PTRDIFF_MAX / 2 - sizeof (word) < current->bufsize)
++	    xalloc_die ();
++	  current->bufsize *= 2;
++	  current->buffer = xrealloc (current->buffer, current->bufsize);
++	  file_block_read (current, current->bufsize - current->buffered);
++	}
++
++      /* Allocate just enough room for appended newline plus word
++	 sentinel, plus word-alignment.  */
++      cc = current->buffered + 2 * sizeof (word);
++      current->bufsize = cc - cc % sizeof (word);
++      current->buffer = xrealloc (current->buffer, current->bufsize);
++    }
++}
++
++/* Split the file into lines, simultaneously computing the equivalence
++   class for each line.  */
++
++static void
++find_and_hash_each_line (struct file_data *current)
++{
++  hash_value h;
++  char const *p = current->prefix_end;
++  unsigned char c;
++  lin i, *bucket;
++  size_t length;
++
++  /* Cache often-used quantities in local variables to help the compiler.  */
++  char const **linbuf = current->linbuf;
++  lin alloc_lines = current->alloc_lines;
++  lin line = 0;
++  lin linbuf_base = current->linbuf_base;
++  lin *cureqs = xmalloc (alloc_lines * sizeof *cureqs);
++  struct equivclass *eqs = equivs;
++  lin eqs_index = equivs_index;
++  lin eqs_alloc = equivs_alloc;
++  char const *suffix_begin = current->suffix_begin;
++  char const *bufend = FILE_BUFFER (current) + current->buffered;
++  bool diff_length_compare_anyway =
++    ignore_white_space != IGNORE_NO_WHITE_SPACE;
++  bool same_length_diff_contents_compare_anyway =
++    diff_length_compare_anyway | ignore_case;
++
++  while (p < suffix_begin)
++    {
++      char const *ip = p;
++
++      h = 0;
++
++      /* Hash this line until we find a newline.  */
++      if (ignore_case)
++	switch (ignore_white_space)
++	  {
++	  case IGNORE_ALL_SPACE:
++	    while ((c = *p++) != '\n')
++	      if (! isspace (c))
++		h = HASH (h, tolower (c));
++	    break;
++
++	  case IGNORE_SPACE_CHANGE:
++	    while ((c = *p++) != '\n')
++	      {
++		if (isspace (c))
++		  {
++		    do
++		      if ((c = *p++) == '\n')
++			goto hashing_done;
++		    while (isspace (c));
++
++		    h = HASH (h, ' ');
++		  }
++
++		/* C is now the first non-space.  */
++		h = HASH (h, tolower (c));
++	      }
++	    break;
++
++	  case IGNORE_TAB_EXPANSION:
++	    {
++	      size_t column = 0;
++	      while ((c = *p++) != '\n')
++		{
++		  size_t repetitions = 1;
++
++		  switch (c)
++		    {
++		    case '\b':
++		      column -= 0 < column;
++		      break;
++
++		    case '\t':
++		      c = ' ';
++		      repetitions = tabsize - column % tabsize;
++		      column = (column + repetitions < column
++				? 0
++				: column + repetitions);
++		      break;
++
++		    case '\r':
++		      column = 0;
++		      break;
++
++		    default:
++		      c = tolower (c);
++		      column++;
++		      break;
++		    }
++
++		  do
++		    h = HASH (h, c);
++		  while (--repetitions != 0);
++		}
++	    }
++	    break;
++
++	  default:
++	    while ((c = *p++) != '\n')
++	      h = HASH (h, tolower (c));
++	    break;
++	  }
++      else
++	switch (ignore_white_space)
++	  {
++	  case IGNORE_ALL_SPACE:
++	    while ((c = *p++) != '\n')
++	      if (! isspace (c))
++		h = HASH (h, c);
++	    break;
++
++	  case IGNORE_SPACE_CHANGE:
++	    while ((c = *p++) != '\n')
++	      {
++		if (isspace (c))
++		  {
++		    do
++		      if ((c = *p++) == '\n')
++			goto hashing_done;
++		    while (isspace (c));
++
++		    h = HASH (h, ' ');
++		  }
++
++		/* C is now the first non-space.  */
++		h = HASH (h, c);
++	      }
++	    break;
++
++	  case IGNORE_TAB_EXPANSION:
++	    {
++	      size_t column = 0;
++	      while ((c = *p++) != '\n')
++		{
++		  size_t repetitions = 1;
++
++		  switch (c)
++		    {
++		    case '\b':
++		      column -= 0 < column;
++		      break;
++
++		    case '\t':
++		      c = ' ';
++		      repetitions = tabsize - column % tabsize;
++		      column = (column + repetitions < column
++				? 0
++				: column + repetitions);
++		      break;
++
++		    case '\r':
++		      column = 0;
++		      break;
++
++		    default:
++		      column++;
++		      break;
++		    }
++
++		  do
++		    h = HASH (h, c);
++		  while (--repetitions != 0);
++		}
++	    }
++	    break;
++
++	  default:
++	    while ((c = *p++) != '\n')
++	      h = HASH (h, c);
++	    break;
++	  }
++
++   hashing_done:;
++
++      bucket = &buckets[h % nbuckets];
++      length = p - ip - 1;
++
++      if (p == bufend
++	  && current->missing_newline
++	  && ROBUST_OUTPUT_STYLE (output_style))
++	{
++	  /* This line is incomplete.  If this is significant,
++	     put the line into buckets[-1].  */
++	  if (ignore_white_space < IGNORE_SPACE_CHANGE)
++	    bucket = &buckets[-1];
++
++	  /* Omit the inserted newline when computing linbuf later.  */
++	  p--;
++	  bufend = suffix_begin = p;
++	}
++
++      for (i = *bucket;  ;  i = eqs[i].next)
++	if (!i)
++	  {
++	    /* Create a new equivalence class in this bucket.  */
++	    i = eqs_index++;
++	    if (i == eqs_alloc)
++	      {
++		if (PTRDIFF_MAX / (2 * sizeof *eqs) <= eqs_alloc)
++		  xalloc_die ();
++		eqs_alloc *= 2;
++		eqs = xrealloc (eqs, eqs_alloc * sizeof *eqs);
++	      }
++	    eqs[i].next = *bucket;
++	    eqs[i].hash = h;
++	    eqs[i].line = ip;
++	    eqs[i].length = length;
++	    *bucket = i;
++	    break;
++	  }
++	else if (eqs[i].hash == h)
++	  {
++	    char const *eqline = eqs[i].line;
++
++	    /* Reuse existing class if lines_differ reports the lines
++               equal.  */
++	    if (eqs[i].length == length)
++	      {
++		/* Reuse existing equivalence class if the lines are identical.
++		   This detects the common case of exact identity
++		   faster than lines_differ would.  */
++		if (memcmp (eqline, ip, length) == 0)
++		  break;
++		if (!same_length_diff_contents_compare_anyway)
++		  continue;
++	      }
++	    else if (!diff_length_compare_anyway)
++	      continue;
++
++	    if (! lines_differ (eqline, ip))
++	      break;
++	  }
++
++      /* Maybe increase the size of the line table.  */
++      if (line == alloc_lines)
++	{
++	  /* Double (alloc_lines - linbuf_base) by adding to alloc_lines.  */
++	  if (PTRDIFF_MAX / 3 <= alloc_lines
++	      || PTRDIFF_MAX / sizeof *cureqs <= 2 * alloc_lines - linbuf_base
++	      || PTRDIFF_MAX / sizeof *linbuf <= alloc_lines - linbuf_base)
++	    xalloc_die ();
++	  alloc_lines = 2 * alloc_lines - linbuf_base;
++	  cureqs = xrealloc (cureqs, alloc_lines * sizeof *cureqs);
++	  linbuf += linbuf_base;
++	  linbuf = xrealloc (linbuf,
++			     (alloc_lines - linbuf_base) * sizeof *linbuf);
++	  linbuf -= linbuf_base;
++	}
++      linbuf[line] = ip;
++      cureqs[line] = i;
++      ++line;
++    }
++
++  current->buffered_lines = line;
++
++  for (i = 0;  ;  i++)
++    {
++      /* Record the line start for lines in the suffix that we care about.
++	 Record one more line start than lines,
++	 so that we can compute the length of any buffered line.  */
++      if (line == alloc_lines)
++	{
++	  /* Double (alloc_lines - linbuf_base) by adding to alloc_lines.  */
++	  if (PTRDIFF_MAX / 3 <= alloc_lines
++	      || PTRDIFF_MAX / sizeof *cureqs <= 2 * alloc_lines - linbuf_base
++	      || PTRDIFF_MAX / sizeof *linbuf <= alloc_lines - linbuf_base)
++	    xalloc_die ();
++	  alloc_lines = 2 * alloc_lines - linbuf_base;
++	  linbuf += linbuf_base;
++	  linbuf = xrealloc (linbuf,
++			     (alloc_lines - linbuf_base) * sizeof *linbuf);
++	  linbuf -= linbuf_base;
++	}
++      linbuf[line] = p;
++
++      if (p == bufend)
++	break;
++
++      if (context <= i && no_diff_means_no_output)
++	break;
++
++      line++;
++
++      while (*p++ != '\n')
++	continue;
++    }
++
++  /* Done with cache in local variables.  */
++  current->linbuf = linbuf;
++  current->valid_lines = line;
++  current->alloc_lines = alloc_lines;
++  current->equivs = cureqs;
++  equivs = eqs;
++  equivs_alloc = eqs_alloc;
++  equivs_index = eqs_index;
++}
++
++/* Prepare the text.  Make sure the text end is initialized.
++   Make sure text ends in a newline,
++   but remember that we had to add one.
++   Strip trailing CRs, if that was requested.  */
++
++static void
++prepare_text (struct file_data *current)
++{
++  size_t buffered = current->buffered;
++  char *p = FILE_BUFFER (current);
++  char *dst;
++
++  if (buffered == 0 || p[buffered - 1] == '\n')
++    current->missing_newline = false;
++  else
++    {
++      p[buffered++] = '\n';
++      current->missing_newline = true;
++    }
++
++  if (!p)
++    return;
++
++  /* Don't use uninitialized storage when planting or using sentinels.  */
++  memset (p + buffered, 0, sizeof (word));
++
++  if (strip_trailing_cr && (dst = memchr (p, '\r', buffered)))
++    {
++      char const *src = dst;
++      char const *srclim = p + buffered;
++
++      do
++	dst += ! ((*dst = *src++) == '\r' && *src == '\n');
++      while (src < srclim);
++
++      buffered -= src - dst;
++    }
++
++  current->buffered = buffered;
++}
++
++/* We have found N lines in a buffer of size S; guess the
++   proportionate number of lines that will be found in a buffer of
++   size T.  However, do not guess a number of lines so large that the
++   resulting line table might cause overflow in size calculations.  */
++static lin
++guess_lines (lin n, size_t s, size_t t)
++{
++  size_t guessed_bytes_per_line = n < 10 ? 32 : s / (n - 1);
++  lin guessed_lines = MAX (1, t / guessed_bytes_per_line);
++  return MIN (guessed_lines, PTRDIFF_MAX / (2 * sizeof (char *) + 1) - 5) + 5;
++}
++
++/* Given a vector of two file_data objects, find the identical
++   prefixes and suffixes of each object.  */
++
++static void
++find_identical_ends (struct file_data filevec[])
++{
++  word *w0, *w1;
++  char *p0, *p1, *buffer0, *buffer1;
++  char const *end0, *beg0;
++  char const **linbuf0, **linbuf1;
++  lin i, lines;
++  size_t n0, n1;
++  lin alloc_lines0, alloc_lines1;
++  lin buffered_prefix, prefix_count, prefix_mask;
++  lin middle_guess, suffix_guess;
++
++  slurp (&filevec[0]);
++  prepare_text (&filevec[0]);
++  if (filevec[0].desc != filevec[1].desc)
++    {
++      slurp (&filevec[1]);
++      prepare_text (&filevec[1]);
++    }
++  else
++    {
++      filevec[1].buffer = filevec[0].buffer;
++      filevec[1].bufsize = filevec[0].bufsize;
++      filevec[1].buffered = filevec[0].buffered;
++      filevec[1].missing_newline = filevec[0].missing_newline;
++    }
++
++  /* Find identical prefix.  */
++
++  w0 = filevec[0].buffer;
++  w1 = filevec[1].buffer;
++  p0 = buffer0 = (char *) w0;
++  p1 = buffer1 = (char *) w1;
++  n0 = filevec[0].buffered;
++  n1 = filevec[1].buffered;
++
++  if (p0 == p1)
++    /* The buffers are the same; sentinels won't work.  */
++    p0 = p1 += n1;
++  else
++    {
++      /* Insert end sentinels, in this case characters that are guaranteed
++	 to make the equality test false, and thus terminate the loop.  */
++
++      if (n0 < n1)
++	p0[n0] = ~p1[n0];
++      else
++	p1[n1] = ~p0[n1];
++
++      /* Loop until first mismatch, or to the sentinel characters.  */
++
++      /* Compare a word at a time for speed.  */
++      while (*w0 == *w1)
++	w0++, w1++;
++
++      /* Do the last few bytes of comparison a byte at a time.  */
++      p0 = (char *) w0;
++      p1 = (char *) w1;
++      while (*p0 == *p1)
++	p0++, p1++;
++
++      /* Don't mistakenly count missing newline as part of prefix.  */
++      if (ROBUST_OUTPUT_STYLE (output_style)
++	  && ((buffer0 + n0 - filevec[0].missing_newline < p0)
++	      !=
++	      (buffer1 + n1 - filevec[1].missing_newline < p1)))
++	p0--, p1--;
++    }
++
++  /* Now P0 and P1 point at the first nonmatching characters.  */
++
++  /* Skip back to last line-beginning in the prefix,
++     and then discard up to HORIZON_LINES lines from the prefix.  */
++  i = horizon_lines;
++  while (p0 != buffer0 && (p0[-1] != '\n' || i--))
++    p0--, p1--;
++
++  /* Record the prefix.  */
++  filevec[0].prefix_end = p0;
++  filevec[1].prefix_end = p1;
++
++  /* Find identical suffix.  */
++
++  /* P0 and P1 point beyond the last chars not yet compared.  */
++  p0 = buffer0 + n0;
++  p1 = buffer1 + n1;
++
++  if (! ROBUST_OUTPUT_STYLE (output_style)
++      || filevec[0].missing_newline == filevec[1].missing_newline)
++    {
++      end0 = p0;	/* Addr of last char in file 0.  */
++
++      /* Get value of P0 at which we should stop scanning backward:
++	 this is when either P0 or P1 points just past the last char
++	 of the identical prefix.  */
++      beg0 = filevec[0].prefix_end + (n0 < n1 ? 0 : n0 - n1);
++
++      /* Scan back until chars don't match or we reach that point.  */
++      for (; p0 != beg0; p0--, p1--)
++	if (*p0 != *p1)
++	  {
++	    /* Point at the first char of the matching suffix.  */
++	    beg0 = p0;
++	    break;
++	  }
++
++      /* Are we at a line-beginning in both files?  If not, add the rest of
++	 this line to the main body.  Discard up to HORIZON_LINES lines from
++	 the identical suffix.  Also, discard one extra line,
++	 because shift_boundaries may need it.  */
++      i = horizon_lines + !((buffer0 == p0 || p0[-1] == '\n')
++			    &&
++			    (buffer1 == p1 || p1[-1] == '\n'));
++      while (i-- && p0 != end0)
++	while (*p0++ != '\n')
++	  continue;
++
++      p1 += p0 - beg0;
++    }
++
++  /* Record the suffix.  */
++  filevec[0].suffix_begin = p0;
++  filevec[1].suffix_begin = p1;
++
++  /* Calculate number of lines of prefix to save.
++
++     prefix_count == 0 means save the whole prefix;
++     we need this for options like -D that output the whole file,
++     or for enormous contexts (to avoid worrying about arithmetic overflow).
++     We also need it for options like -F that output some preceding line;
++     at least we will need to find the last few lines,
++     but since we don't know how many, it's easiest to find them all.
++
++     Otherwise, prefix_count != 0.  Save just prefix_count lines at start
++     of the line buffer; they'll be moved to the proper location later.
++     Handle 1 more line than the context says (because we count 1 too many),
++     rounded up to the next power of 2 to speed index computation.  */
++
++  if (no_diff_means_no_output && ! function_regexp.fastmap
++      && context < LIN_MAX / 4 && context < n0)
++    {
++      middle_guess = guess_lines (0, 0, p0 - filevec[0].prefix_end);
++      suffix_guess = guess_lines (0, 0, buffer0 + n0 - p0);
++      for (prefix_count = 1;  prefix_count <= context;  prefix_count *= 2)
++	continue;
++      alloc_lines0 = (prefix_count + middle_guess
++		      + MIN (context, suffix_guess));
++    }
++  else
++    {
++      prefix_count = 0;
++      alloc_lines0 = guess_lines (0, 0, n0);
++    }
++
++  prefix_mask = prefix_count - 1;
++  lines = 0;
++  linbuf0 = xmalloc (alloc_lines0 * sizeof *linbuf0);
++  p0 = buffer0;
++
++  /* If the prefix is needed, find the prefix lines.  */
++  if (! (no_diff_means_no_output
++	 && filevec[0].prefix_end == p0
++	 && filevec[1].prefix_end == p1))
++    {
++      end0 = filevec[0].prefix_end;
++      while (p0 != end0)
++	{
++	  lin l = lines++ & prefix_mask;
++	  if (l == alloc_lines0)
++	    {
++	      if (PTRDIFF_MAX / (2 * sizeof *linbuf0) <= alloc_lines0)
++		xalloc_die ();
++	      alloc_lines0 *= 2;
++	      linbuf0 = xrealloc (linbuf0, alloc_lines0 * sizeof *linbuf0);
++	    }
++	  linbuf0[l] = p0;
++	  while (*p0++ != '\n')
++	    continue;
++	}
++    }
++  buffered_prefix = prefix_count && context < lines ? context : lines;
++
++  /* Allocate line buffer 1.  */
++
++  middle_guess = guess_lines (lines, p0 - buffer0, p1 - filevec[1].prefix_end);
++  suffix_guess = guess_lines (lines, p0 - buffer0, buffer1 + n1 - p1);
++  alloc_lines1 = buffered_prefix + middle_guess + MIN (context, suffix_guess);
++  if (alloc_lines1 < buffered_prefix
++      || PTRDIFF_MAX / sizeof *linbuf1 <= alloc_lines1)
++    xalloc_die ();
++  linbuf1 = xmalloc (alloc_lines1 * sizeof *linbuf1);
++
++  if (buffered_prefix != lines)
++    {
++      /* Rotate prefix lines to proper location.  */
++      for (i = 0;  i < buffered_prefix;  i++)
++	linbuf1[i] = linbuf0[(lines - context + i) & prefix_mask];
++      for (i = 0;  i < buffered_prefix;  i++)
++	linbuf0[i] = linbuf1[i];
++    }
++
++  /* Initialize line buffer 1 from line buffer 0.  */
++  for (i = 0; i < buffered_prefix; i++)
++    linbuf1[i] = linbuf0[i] - buffer0 + buffer1;
++
++  /* Record the line buffer, adjusted so that
++     linbuf[0] points at the first differing line.  */
++  filevec[0].linbuf = linbuf0 + buffered_prefix;
++  filevec[1].linbuf = linbuf1 + buffered_prefix;
++  filevec[0].linbuf_base = filevec[1].linbuf_base = - buffered_prefix;
++  filevec[0].alloc_lines = alloc_lines0 - buffered_prefix;
++  filevec[1].alloc_lines = alloc_lines1 - buffered_prefix;
++  filevec[0].prefix_lines = filevec[1].prefix_lines = lines;
++}
++
++/* If 1 < k, then (2**k - prime_offset[k]) is the largest prime less
++   than 2**k.  This table is derived from Chris K. Caldwell's list
++   <http://www.utm.edu/research/primes/lists/2small/>.  */
++
++static unsigned char const prime_offset[] =
++{
++  0, 0, 1, 1, 3, 1, 3, 1, 5, 3, 3, 9, 3, 1, 3, 19, 15, 1, 5, 1, 3, 9, 3,
++  15, 3, 39, 5, 39, 57, 3, 35, 1, 5, 9, 41, 31, 5, 25, 45, 7, 87, 21,
++  11, 57, 17, 55, 21, 115, 59, 81, 27, 129, 47, 111, 33, 55, 5, 13, 27,
++  55, 93, 1, 57, 25
++};
++
++/* Verify that this host's size_t is not too wide for the above table.  */
++
++verify (enough_prime_offsets,
++	sizeof (size_t) * CHAR_BIT <= sizeof prime_offset);
++
++/* Given a vector of two file_data objects, read the file associated
++   with each one, and build the table of equivalence classes.
++   Return nonzero if either file appears to be a binary file.
++   If PRETEND_BINARY is nonzero, pretend they are binary regardless.  */
++
++bool
++read_files (struct file_data filevec[], bool pretend_binary)
++{
++  int i;
++  bool skip_test = text | pretend_binary;
++  bool appears_binary = pretend_binary | sip (&filevec[0], skip_test);
++
++  if (filevec[0].desc != filevec[1].desc)
++    appears_binary |= sip (&filevec[1], skip_test | appears_binary);
++  else
++    {
++      filevec[1].buffer = filevec[0].buffer;
++      filevec[1].bufsize = filevec[0].bufsize;
++      filevec[1].buffered = filevec[0].buffered;
++    }
++  if (appears_binary)
++    {
++      set_binary_mode (filevec[0].desc, true);
++      set_binary_mode (filevec[1].desc, true);
++      return true;
++    }
++
++  find_identical_ends (filevec);
++
++  equivs_alloc = filevec[0].alloc_lines + filevec[1].alloc_lines + 1;
++  if (PTRDIFF_MAX / sizeof *equivs <= equivs_alloc)
++    xalloc_die ();
++  equivs = xmalloc (equivs_alloc * sizeof *equivs);
++  /* Equivalence class 0 is permanently safe for lines that were not
++     hashed.  Real equivalence classes start at 1.  */
++  equivs_index = 1;
++
++  /* Allocate (one plus) a prime number of hash buckets.  Use a prime
++     number between 1/3 and 2/3 of the value of equiv_allocs,
++     approximately.  */
++  for (i = 9; (size_t) 1 << i < equivs_alloc / 3; i++)
++    continue;
++  nbuckets = ((size_t) 1 << i) - prime_offset[i];
++  if (PTRDIFF_MAX / sizeof *buckets <= nbuckets)
++    xalloc_die ();
++  buckets = zalloc ((nbuckets + 1) * sizeof *buckets);
++  buckets++;
++
++  for (i = 0; i < 2; i++)
++    find_and_hash_each_line (&filevec[i]);
++
++  filevec[0].equiv_max = filevec[1].equiv_max = equivs_index;
++
++  free (equivs);
++  free (buckets - 1);
++
++  return false;
++}
+diff -Naur diffutils-2.8.7.orig/src/side.c diffutils-2.8.7/src/side.c
+--- diffutils-2.8.7.orig/src/side.c	2004-04-12 07:44:35.000000000 +0000
++++ diffutils-2.8.7/src/side.c	2006-01-18 02:40:15.000000000 +0000
+@@ -73,11 +73,72 @@
+   register size_t out_position = 0;
+   register char const *text_pointer = line[0];
+   register char const *text_limit = line[1];
++#if defined HAVE_WCHAR_H && defined HAVE_WCTYPE_H
++  unsigned char mbc[MB_LEN_MAX];
++  wchar_t wc;
++  mbstate_t state, state_bak;
++  size_t mbc_pos, mblength;
++  int mbc_loading_flag = 0;
++  int wc_width;
++
++  memset (&state, '\0', sizeof (mbstate_t));
++#endif
+ 
+   while (text_pointer < text_limit)
+     {
+       register unsigned char c = *text_pointer++;
+ 
++#if defined HAVE_WCHAR_H && defined HAVE_WCTYPE_H
++      if (MB_CUR_MAX > 1 && mbc_loading_flag)
++       {
++         mbc_loading_flag = 0;
++         state_bak = state;
++         mbc[mbc_pos++] = c;
++
++process_mbc:
++         mblength = mbrtowc (&wc, mbc, mbc_pos, &state);
++
++         switch (mblength)
++           {
++           case (size_t)-2:    /* Incomplete multibyte character. */
++             mbc_loading_flag = 1;
++             state = state_bak;
++             break;
++
++           case (size_t)-1:    /* Invalid as a multibyte character. */
++             if (in_position++ < out_bound)
++               {
++                 out_position = in_position;
++                 putc (mbc[0], out);
++               }
++             memmove (mbc, mbc + 1, --mbc_pos);
++             if (mbc_pos > 0)
++               {
++                 mbc[mbc_pos] = '\0';
++                 goto process_mbc;
++               }
++             break;
++
++           default:
++             wc_width = wcwidth (wc);
++             if (wc_width < 1) /* Unprintable multibyte character. */
++               {
++                 if (in_position <= out_bound)
++                   fprintf (out, "%lc", (wint_t)wc);
++               }
++             else              /* Printable multibyte character. */
++               {
++                 in_position += wc_width;
++                 if (in_position <= out_bound)
++                   {
++                     out_position = in_position;
++                     fprintf (out, "%lc", (wint_t)wc);
++                   }
++               }
++           }
++         continue;
++       }
++#endif
+       switch (c)
+ 	{
+ 	case '\t':
+@@ -135,8 +196,39 @@
+ 	  break;
+ 
+ 	default:
+-	  if (! isprint (c))
+-	    goto control_char;
++#if defined HAVE_WCHAR_H && defined HAVE_WCTYPE_H
++         if (MB_CUR_MAX > 1) 
++           {
++             memset (mbc, '\0', MB_LEN_MAX);
++             mbc_pos = 0;
++             mbc[mbc_pos++] = c;
++             state_bak = state;
++
++             mblength = mbrtowc (&wc, mbc, mbc_pos, &state);
++
++             /* The value of mblength is always less than 2 here. */
++             switch (mblength)
++               {
++               case (size_t)-2:        /* Incomplete multibyte character. */
++                 state = state_bak;
++                 mbc_loading_flag = 1;
++                 continue;
++
++               case (size_t)-1:        /* Invalid as a multibyte character. */
++                 state = state_bak;
++                 break;
++
++               default:
++                 if (! iswprint (wc))
++                   goto control_char;
++               }
++           }
++         else
++#endif
++           {
++             if (! isprint (c))
++               goto control_char;
++           }
+ 	  /* falls through */
+ 	case ' ':
+ 	  if (in_position++ < out_bound)
+diff -Naur diffutils-2.8.7.orig/src/util.c diffutils-2.8.7/src/util.c
+--- diffutils-2.8.7.orig/src/util.c	2004-04-12 07:44:35.000000000 +0000
++++ diffutils-2.8.7/src/util.c	2006-01-18 02:40:15.000000000 +0000
+@@ -319,7 +319,7 @@
+    Return nonzero if the lines differ.  */
+ 
+ bool
+-lines_differ (char const *s1, char const *s2)
++lines_differ_singlebyte (char const *s1, char const *s2)
+ {
+   register char const *t1 = s1;
+   register char const *t2 = s2;
+@@ -458,6 +458,292 @@
+   return start;
+ }
+ 
++#ifdef HANDLE_MULTIBYTE
++# define MBC2WC(T, END, MBLENGTH, WC, STATE, CONVFAIL)                 \
++do                                                                     \
++{                                                                      \
++    mbstate_t bak = STATE;                                             \
++                                                                       \
++    CONVFAIL = 0;                                                      \
++    MBLENGTH = mbrtowc (&WC, T, END - T, &STATE);                      \
++                                                                       \
++    switch (MBLENGTH)                                                  \
++      {                                                                        \
++      case (size_t)-2:                                                 \
++      case (size_t)-1:                                                 \
++       STATE = bak;                                                    \
++       ++CONVFAIL;                                                     \
++         /* Fall through. */                                           \
++      case 0:                                                          \
++       MBLENGTH = 1;                                                   \
++      }                                                                        \
++}                                                                      \
++while (0)
++
++bool
++lines_differ_multibyte (char const *s1, char const *s2)
++{   
++  unsigned char const *end1, *end2; 
++  unsigned char c1, c2;
++  wchar_t wc1, wc2, wc1_bak, wc2_bak;
++  size_t mblen1, mblen2;                                                       +  mbstate_t state1, state2, state1_bak, state2_bak;
++  int convfail1, convfail2, convfail1_bak, convfail2_bak;
++
++  unsigned char const *t1 = (unsigned char const *) s1;
++  unsigned char const *t2 = (unsigned char const *) s2;
++  unsigned char const *t1_bak, *t2_bak;
++  size_t column = 0;
++
++  if (ignore_white_space == IGNORE_NO_WHITE_SPACE  && !ignore_case)
++    {
++      while (*t1 != '\n')
++       if (*t1++ != * t2++)
++         return 1;
++      return 0;
++    }
++
++  memset (&state1, '\0', sizeof (mbstate_t));
++  memset (&state2, '\0', sizeof (mbstate_t));
++
++  end1 = s1 + strlen (s1);
++  end2 = s2 + strlen (s2);
++
++  while (1)
++    {
++      c1 = *t1; 
++      c2 = *t2; 
++      MBC2WC (t1, end1, mblen1, wc1, state1, convfail1);
++      MBC2WC (t2, end2, mblen2, wc2, state2, convfail2);
++
++      /* Test for exact char equality first, since it's a common case.  */
++      if (convfail1 ^ convfail2)
++       break;
++      else if (convfail1 && convfail2 && c1 != c2)
++       break;
++      else if (!convfail1 && !convfail2 && wc1 != wc2)
++       {
++         switch (ignore_white_space)
++           {
++           case IGNORE_ALL_SPACE:
++             /* For -w, just skip past any white space.  */
++             while (1)
++               {
++                 if (convfail1)
++                   break;
++                 else if (wc1 == L'\n' || !iswspace (wc1))
++                   break;
++
++                 t1 += mblen1;
++                 c1 = *t1;
++                 MBC2WC (t1, end1, mblen1, wc1, state1, convfail1);
++               }
++
++             while (1)
++               {
++                 if (convfail2)
++                   break;
++                 else if (wc2 == L'\n' || !iswspace (wc2))
++                   break;
++
++                 t2 += mblen2;
++                 c2 = *t2;
++                 MBC2WC (t2, end2, mblen2, wc2, state2, convfail2);
++               }
++             t1 += mblen1;
++             t2 += mblen2;
++             break;
++
++           case IGNORE_SPACE_CHANGE:
++             /* For -b, advance past any sequence of white space in
++                line 1 and consider it just one space, or nothing at
++                all if it is at the end of the line.  */
++             if (wc1 != L'\n' && iswspace (wc1))
++               {
++                 size_t mblen_bak;
++                 mbstate_t state_bak;
++
++                 do
++                   {
++                     t1 += mblen1;
++                     mblen_bak = mblen1;
++                     state_bak = state1;
++                     MBC2WC (t1, end1, mblen1, wc1, state1, convfail1);
++                   }
++                 while (!convfail1 && (wc1 != L'\n' && iswspace (wc1)));
++
++                 state1 = state_bak;
++                 mblen1 = mblen_bak;
++                 t1 -= mblen1;
++                 convfail1 = 0;
++                 wc1 = L' ';
++               }
++
++             /* Likewise for line 2.  */
++             if (wc2 != L'\n' && iswspace (wc2))
++               {
++                 size_t mblen_bak;
++                 mbstate_t state_bak;
++
++                 do
++                   {
++                     t2 += mblen2;
++                     mblen_bak = mblen2;
++                     state_bak = state2;
++                     MBC2WC (t2, end2, mblen2, wc2, state2, convfail2);
++                   }
++                 while (!convfail2 && (wc2 != L'\n' && iswspace (wc2)));
++
++                 state2 = state_bak;
++                 mblen2 = mblen_bak;
++                 t2 -= mblen2;
++                 convfail2 = 0;
++                 wc2 = L' ';
++               }
++
++             if (wc1 != wc2)
++               {
++                 if (wc2 == L' ' && wc1 != L'\n' &&
++                     t1 > (unsigned char const *)s1 &&
++                     !convfail1_bak && iswspace (wc1_bak))
++                   {
++                     t1 = t1_bak;
++                     wc1 = wc1_bak;
++                     state1 = state1_bak;
++                     convfail1 = convfail1_bak;
++                     continue;
++                   }
++                 if (wc1 == L' ' && wc2 != L'\n'
++                     && t2 > (unsigned char const *)s2
++                     && !convfail2_bak && iswspace (wc2_bak))
++                   {
++                     t2 = t2_bak;
++                     wc2 = wc2_bak;
++                     state2 = state2_bak;
++                     convfail2 = convfail2_bak;
++                     continue;
++                   }
++               }
++
++             t1_bak = t1;                t2_bak = t2;
++             wc1_bak = wc1;              wc2_bak = wc2;
++             state1_bak = state1;        state2_bak = state2;
++             convfail1_bak = convfail1;  convfail2_bak = convfail2;
++
++             if (wc1 == L'\n')
++               wc1 = L' ';
++             else
++               t1 += mblen1;
++
++             if (wc2 == L'\n')
++               wc2 = L' ';
++             else
++               t2 += mblen2;
++
++             break;
++
++           case IGNORE_TAB_EXPANSION:
++             if ((wc1 == L' ' && wc2 == L'\t')
++                 || (wc1 == L'\t' && wc2 == L' '))
++               {
++                 size_t column2 = column;
++
++                 while (1)
++                   {
++                     if (convfail1)
++                       {
++                         ++t1;
++                         break;
++                       }
++                     else if (wc1 == L' ')
++                       column++;
++                     else if (wc1 == L'\t')
++                       column += TAB_WIDTH - column % TAB_WIDTH;
++                     else
++                       {
++                         t1 += mblen1;
++                         break;
++                       }
++
++                     t1 += mblen1;
++                     c1 = *t1;
++                     MBC2WC (t1, end1, mblen1, wc1, state1, convfail1);
++                   }
++
++                 while (1)
++                   {
++                     if (convfail2)
++                       {
++                         ++t2;
++                         break;
++                       }
++                     else if (wc2 == L' ')
++                       column2++; 
++                     else if (wc2 == L'\t')
++                       column2 += TAB_WIDTH - column2 % TAB_WIDTH;
++                     else
++                       {
++                         t2 += mblen2;
++                         break;
++                       }
++
++                     t2 += mblen2;
++                     c2 = *t2;
++                     MBC2WC (t2, end2, mblen2, wc2, state2, convfail2);
++                   }
++
++                 if (column != column2)
++                   return 1;
++               }
++             else
++               {
++                 t1 += mblen1;
++                 t2 += mblen2;
++               }
++             break;
++
++           case IGNORE_NO_WHITE_SPACE:
++             t1 += mblen1;
++             t2 += mblen2;
++             break;
++           }
++
++         /* Lowercase all letters if -i is specified.  */
++         if (ignore_case)
++           {
++             if (!convfail1)
++               wc1 = towlower (wc1);
++             if (!convfail2)
++               wc2 = towlower (wc2);
++           }
++
++         if (convfail1 ^ convfail2)
++           break;
++         else if (convfail1 && convfail2 && c1 != c2)
++           break;
++         else if (!convfail1 && !convfail2 && wc1 != wc2)
++           break;
++       }
++      else
++       {
++         t1_bak = t1;                  t2_bak = t2;
++         wc1_bak = wc1;                wc2_bak = wc2;
++         state1_bak = state1;          state2_bak = state2;
++         convfail1_bak = convfail1;    convfail2_bak = convfail2;
++
++         t1 += mblen1;                 t2 += mblen2;
++       }
++
++      if (!convfail1 && wc1 == L'\n')
++       return 0;
++
++      column += convfail1 ? 1 :
++       (wc1 == L'\t') ? TAB_WIDTH - column % TAB_WIDTH : wcwidth (wc1);
++    }
++
++  return 1;
++}
++#endif
++
+ struct change *
+ find_reverse_change (struct change *start)
+ {
+diff -Naur diffutils-2.8.7.orig/src/util.c~ diffutils-2.8.7/src/util.c~
+--- diffutils-2.8.7.orig/src/util.c~	1970-01-01 00:00:00.000000000 +0000
++++ diffutils-2.8.7/src/util.c~	2004-04-12 07:44:35.000000000 +0000
+@@ -0,0 +1,775 @@
++/* Support routines for GNU DIFF.
++
++   Copyright (C) 1988, 1989, 1992, 1993, 1994, 1995, 1998, 2001, 2002,
++   2004 Free Software Foundation, Inc.
++
++   This file is part of GNU DIFF.
++
++   GNU DIFF is free software; you can redistribute it and/or modify
++   it under the terms of the GNU General Public License as published by
++   the Free Software Foundation; either version 2, or (at your option)
++   any later version.
++
++   GNU DIFF is distributed in the hope that it will be useful,
++   but WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++   GNU General Public License for more details.
++
++   You should have received a copy of the GNU General Public License
++   along with this program; see the file COPYING.
++   If not, write to the Free Software Foundation,
++   59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  */
++
++#include "diff.h"
++#include <dirname.h>
++#include <error.h>
++#include <quotesys.h>
++#include <xalloc.h>
++
++char const pr_program[] = PR_PROGRAM;
++
++/* Queue up one-line messages to be printed at the end,
++   when -l is specified.  Each message is recorded with a `struct msg'.  */
++
++struct msg
++{
++  struct msg *next;
++  char args[1]; /* Format + 4 args, each '\0' terminated, concatenated.  */
++};
++
++/* Head of the chain of queues messages.  */
++
++static struct msg *msg_chain;
++
++/* Tail of the chain of queues messages.  */
++
++static struct msg **msg_chain_end = &msg_chain;
++
++/* Use when a system call returns non-zero status.
++   NAME should normally be the file name.  */
++
++void
++perror_with_name (char const *name)
++{
++  error (0, errno, "%s", name);
++}
++
++/* Use when a system call returns non-zero status and that is fatal.  */
++
++void
++pfatal_with_name (char const *name)
++{
++  int e = errno;
++  print_message_queue ();
++  error (EXIT_TROUBLE, e, "%s", name);
++  abort ();
++}
++
++/* Print an error message containing MSGID, then exit.  */
++
++void
++fatal (char const *msgid)
++{
++  print_message_queue ();
++  error (EXIT_TROUBLE, 0, "%s", _(msgid));
++  abort ();
++}
++
++/* Like printf, except if -l in effect then save the message and print later.
++   This is used for things like "Only in ...".  */
++
++void
++message (char const *format_msgid, char const *arg1, char const *arg2)
++{
++  message5 (format_msgid, arg1, arg2, 0, 0);
++}
++
++void
++message5 (char const *format_msgid, char const *arg1, char const *arg2,
++	  char const *arg3, char const *arg4)
++{
++  if (paginate)
++    {
++      char *p;
++      char const *arg[5];
++      int i;
++      size_t size[5];
++      size_t total_size = offsetof (struct msg, args);
++      struct msg *new;
++
++      arg[0] = format_msgid;
++      arg[1] = arg1;
++      arg[2] = arg2;
++      arg[3] = arg3 ? arg3 : "";
++      arg[4] = arg4 ? arg4 : "";
++
++      for (i = 0;  i < 5;  i++)
++	total_size += size[i] = strlen (arg[i]) + 1;
++
++      new = xmalloc (total_size);
++
++      for (i = 0, p = new->args;  i < 5;  p += size[i++])
++	memcpy (p, arg[i], size[i]);
++
++      *msg_chain_end = new;
++      new->next = 0;
++      msg_chain_end = &new->next;
++    }
++  else
++    {
++      if (sdiff_merge_assist)
++	putchar (' ');
++      printf (_(format_msgid), arg1, arg2, arg3, arg4);
++    }
++}
++
++/* Output all the messages that were saved up by calls to `message'.  */
++
++void
++print_message_queue (void)
++{
++  char const *arg[5];
++  int i;
++  struct msg *m = msg_chain;
++
++  while (m)
++    {
++      struct msg *next = m->next;
++      arg[0] = m->args;
++      for (i = 0;  i < 4;  i++)
++	arg[i + 1] = arg[i] + strlen (arg[i]) + 1;
++      printf (_(arg[0]), arg[1], arg[2], arg[3], arg[4]);
++      free (m);
++      m = next;
++    }
++}
++
++/* Call before outputting the results of comparing files NAME0 and NAME1
++   to set up OUTFILE, the stdio stream for the output to go to.
++
++   Usually, OUTFILE is just stdout.  But when -l was specified
++   we fork off a `pr' and make OUTFILE a pipe to it.
++   `pr' then outputs to our stdout.  */
++
++static char const *current_name0;
++static char const *current_name1;
++static bool currently_recursive;
++
++void
++setup_output (char const *name0, char const *name1, bool recursive)
++{
++  current_name0 = name0;
++  current_name1 = name1;
++  currently_recursive = recursive;
++  outfile = 0;
++}
++
++#if HAVE_WORKING_FORK || HAVE_WORKING_VFORK
++static pid_t pr_pid;
++#endif
++
++void
++begin_output (void)
++{
++  char *name;
++
++  if (outfile != 0)
++    return;
++
++  /* Construct the header of this piece of diff.  */
++  name = xmalloc (strlen (current_name0) + strlen (current_name1)
++		  + strlen (switch_string) + 7);
++
++  /* POSIX 1003.1-2001 specifies this format.  But there are some bugs in
++     the standard: it says that we must print only the last component
++     of the pathnames, and it requires two spaces after "diff" if
++     there are no options.  These requirements are silly and do not
++     match historical practice.  */
++  sprintf (name, "diff%s %s %s", switch_string, current_name0, current_name1);
++
++  if (paginate)
++    {
++      if (fflush (stdout) != 0)
++	pfatal_with_name (_("write failed"));
++
++      /* Make OUTFILE a pipe to a subsidiary `pr'.  */
++      {
++#if HAVE_WORKING_FORK || HAVE_WORKING_VFORK
++	int pipes[2];
++
++	if (pipe (pipes) != 0)
++	  pfatal_with_name ("pipe");
++
++	pr_pid = vfork ();
++	if (pr_pid < 0)
++	  pfatal_with_name ("fork");
++
++	if (pr_pid == 0)
++	  {
++	    close (pipes[1]);
++	    if (pipes[0] != STDIN_FILENO)
++	      {
++		if (dup2 (pipes[0], STDIN_FILENO) < 0)
++		  pfatal_with_name ("dup2");
++		close (pipes[0]);
++	      }
++
++	    execl (pr_program, pr_program, "-h", name, (char *) 0);
++	    _exit (errno == ENOENT ? 127 : 126);
++	  }
++	else
++	  {
++	    close (pipes[0]);
++	    outfile = fdopen (pipes[1], "w");
++	    if (!outfile)
++	      pfatal_with_name ("fdopen");
++	  }
++#else
++	char *command = xmalloc (sizeof pr_program - 1 + 7
++				 + quote_system_arg ((char *) 0, name) + 1);
++	char *p;
++	sprintf (command, "%s -f -h ", pr_program);
++	p = command + sizeof pr_program - 1 + 7;
++	p += quote_system_arg (p, name);
++	*p = 0;
++	errno = 0;
++	outfile = popen (command, "w");
++	if (!outfile)
++	  pfatal_with_name (command);
++	free (command);
++#endif
++      }
++    }
++  else
++    {
++
++      /* If -l was not specified, output the diff straight to `stdout'.  */
++
++      outfile = stdout;
++
++      /* If handling multiple files (because scanning a directory),
++	 print which files the following output is about.  */
++      if (currently_recursive)
++	printf ("%s\n", name);
++    }
++
++  free (name);
++
++  /* A special header is needed at the beginning of context output.  */
++  switch (output_style)
++    {
++    case OUTPUT_CONTEXT:
++      print_context_header (files, false);
++      break;
++
++    case OUTPUT_UNIFIED:
++      print_context_header (files, true);
++      break;
++
++    default:
++      break;
++    }
++}
++
++/* Call after the end of output of diffs for one file.
++   Close OUTFILE and get rid of the `pr' subfork.  */
++
++void
++finish_output (void)
++{
++  if (outfile != 0 && outfile != stdout)
++    {
++      int status;
++      int wstatus;
++      int werrno = 0;
++      if (ferror (outfile))
++	fatal ("write failed");
++#if ! (HAVE_WORKING_FORK || HAVE_WORKING_VFORK)
++      wstatus = pclose (outfile);
++      if (wstatus == -1)
++	werrno = errno;
++#else
++      if (fclose (outfile) != 0)
++	pfatal_with_name (_("write failed"));
++      if (waitpid (pr_pid, &wstatus, 0) < 0)
++	pfatal_with_name ("waitpid");
++#endif
++      status = (! werrno && WIFEXITED (wstatus)
++		? WEXITSTATUS (wstatus)
++		: INT_MAX);
++      if (status)
++	error (EXIT_TROUBLE, werrno,
++	       _(status == 126
++		 ? "subsidiary program `%s' could not be invoked"
++		 : status == 127
++		 ? "subsidiary program `%s' not found"
++		 : status == INT_MAX
++		 ? "subsidiary program `%s' failed"
++		 : "subsidiary program `%s' failed (exit status %d)"),
++	       pr_program, status);
++    }
++
++  outfile = 0;
++}
++
++/* Compare two lines (typically one from each input file)
++   according to the command line options.
++   For efficiency, this is invoked only when the lines do not match exactly
++   but an option like -i might cause us to ignore the difference.
++   Return nonzero if the lines differ.  */
++
++bool
++lines_differ (char const *s1, char const *s2)
++{
++  register char const *t1 = s1;
++  register char const *t2 = s2;
++  size_t column = 0;
++
++  while (1)
++    {
++      register unsigned char c1 = *t1++;
++      register unsigned char c2 = *t2++;
++
++      /* Test for exact char equality first, since it's a common case.  */
++      if (c1 != c2)
++	{
++	  switch (ignore_white_space)
++	    {
++	    case IGNORE_ALL_SPACE:
++	      /* For -w, just skip past any white space.  */
++	      while (isspace (c1) && c1 != '\n') c1 = *t1++;
++	      while (isspace (c2) && c2 != '\n') c2 = *t2++;
++	      break;
++
++	    case IGNORE_SPACE_CHANGE:
++	      /* For -b, advance past any sequence of white space in
++		 line 1 and consider it just one space, or nothing at
++		 all if it is at the end of the line.  */
++	      if (isspace (c1))
++		{
++		  while (c1 != '\n')
++		    {
++		      c1 = *t1++;
++		      if (! isspace (c1))
++			{
++			  --t1;
++			  c1 = ' ';
++			  break;
++			}
++		    }
++		}
++
++	      /* Likewise for line 2.  */
++	      if (isspace (c2))
++		{
++		  while (c2 != '\n')
++		    {
++		      c2 = *t2++;
++		      if (! isspace (c2))
++			{
++			  --t2;
++			  c2 = ' ';
++			  break;
++			}
++		    }
++		}
++
++	      if (c1 != c2)
++		{
++		  /* If we went too far when doing the simple test
++		     for equality, go back to the first non-white-space
++		     character in both sides and try again.  */
++		  if (c2 == ' ' && c1 != '\n'
++		      && s1 + 1 < t1
++		      && isspace ((unsigned char) t1[-2]))
++		    {
++		      --t1;
++		      continue;
++		    }
++		  if (c1 == ' ' && c2 != '\n'
++		      && s2 + 1 < t2
++		      && isspace ((unsigned char) t2[-2]))
++		    {
++		      --t2;
++		      continue;
++		    }
++		}
++
++	      break;
++
++	    case IGNORE_TAB_EXPANSION:
++	      if ((c1 == ' ' && c2 == '\t')
++		  || (c1 == '\t' && c2 == ' '))
++		{
++		  size_t column2 = column;
++		  for (;; c1 = *t1++)
++		    {
++		      if (c1 == ' ')
++			column++;
++		      else if (c1 == '\t')
++			column += tabsize - column % tabsize;
++		      else
++			break;
++		    }
++		  for (;; c2 = *t2++)
++		    {
++		      if (c2 == ' ')
++			column2++;
++		      else if (c2 == '\t')
++			column2 += tabsize - column2 % tabsize;
++		      else
++			break;
++		    }
++		  if (column != column2)
++		    return true;
++		}
++	      break;
++
++	    case IGNORE_NO_WHITE_SPACE:
++	      break;
++	    }
++
++	  /* Lowercase all letters if -i is specified.  */
++
++	  if (ignore_case)
++	    {
++	      c1 = tolower (c1);
++	      c2 = tolower (c2);
++	    }
++
++	  if (c1 != c2)
++	    break;
++	}
++      if (c1 == '\n')
++	return false;
++
++      column += c1 == '\t' ? tabsize - column % tabsize : 1;
++    }
++
++  return true;
++}
++
++/* Find the consecutive changes at the start of the script START.
++   Return the last link before the first gap.  */
++
++struct change *
++find_change (struct change *start)
++{
++  return start;
++}
++
++struct change *
++find_reverse_change (struct change *start)
++{
++  return start;
++}
++
++/* Divide SCRIPT into pieces by calling HUNKFUN and
++   print each piece with PRINTFUN.
++   Both functions take one arg, an edit script.
++
++   HUNKFUN is called with the tail of the script
++   and returns the last link that belongs together with the start
++   of the tail.
++
++   PRINTFUN takes a subscript which belongs together (with a null
++   link at the end) and prints it.  */
++
++void
++print_script (struct change *script,
++	      struct change * (*hunkfun) (struct change *),
++	      void (*printfun) (struct change *))
++{
++  struct change *next = script;
++
++  while (next)
++    {
++      struct change *this, *end;
++
++      /* Find a set of changes that belong together.  */
++      this = next;
++      end = (*hunkfun) (next);
++
++      /* Disconnect them from the rest of the changes,
++	 making them a hunk, and remember the rest for next iteration.  */
++      next = end->link;
++      end->link = 0;
++#ifdef DEBUG
++      debug_script (this);
++#endif
++
++      /* Print this hunk.  */
++      (*printfun) (this);
++
++      /* Reconnect the script so it will all be freed properly.  */
++      end->link = next;
++    }
++}
++
++/* Print the text of a single line LINE,
++   flagging it with the characters in LINE_FLAG (which say whether
++   the line is inserted, deleted, changed, etc.).  */
++
++void
++print_1_line (char const *line_flag, char const *const *line)
++{
++  char const *base = line[0], *limit = line[1]; /* Help the compiler.  */
++  FILE *out = outfile; /* Help the compiler some more.  */
++  char const *flag_format = 0;
++
++  /* If -T was specified, use a Tab between the line-flag and the text.
++     Otherwise use a Space (as Unix diff does).
++     Print neither space nor tab if line-flags are empty.  */
++
++  if (line_flag && *line_flag)
++    {
++      flag_format = initial_tab ? "%s\t" : "%s ";
++      fprintf (out, flag_format, line_flag);
++    }
++
++  output_1_line (base, limit, flag_format, line_flag);
++
++  if ((!line_flag || line_flag[0]) && limit[-1] != '\n')
++    fprintf (out, "\n\\ %s\n", _("No newline at end of file"));
++}
++
++/* Output a line from BASE up to LIMIT.
++   With -t, expand white space characters to spaces, and if FLAG_FORMAT
++   is nonzero, output it with argument LINE_FLAG after every
++   internal carriage return, so that tab stops continue to line up.  */
++
++void
++output_1_line (char const *base, char const *limit, char const *flag_format,
++	       char const *line_flag)
++{
++  if (!expand_tabs)
++    fwrite (base, sizeof (char), limit - base, outfile);
++  else
++    {
++      register FILE *out = outfile;
++      register unsigned char c;
++      register char const *t = base;
++      register size_t column = 0;
++      size_t tab_size = tabsize;
++
++      while (t < limit)
++	switch ((c = *t++))
++	  {
++	  case '\t':
++	    {
++	      size_t spaces = tab_size - column % tab_size;
++	      column += spaces;
++	      do
++		putc (' ', out);
++	      while (--spaces);
++	    }
++	    break;
++
++	  case '\r':
++	    putc (c, out);
++	    if (flag_format && t < limit && *t != '\n')
++	      fprintf (out, flag_format, line_flag);
++	    column = 0;
++	    break;
++
++	  case '\b':
++	    if (column == 0)
++	      continue;
++	    column--;
++	    putc (c, out);
++	    break;
++
++	  default:
++	    column += isprint (c) != 0;
++	    putc (c, out);
++	    break;
++	  }
++    }
++}
++
++char const change_letter[] = { 0, 'd', 'a', 'c' };
++
++/* Translate an internal line number (an index into diff's table of lines)
++   into an actual line number in the input file.
++   The internal line number is I.  FILE points to the data on the file.
++
++   Internal line numbers count from 0 starting after the prefix.
++   Actual line numbers count from 1 within the entire file.  */
++
++lin
++translate_line_number (struct file_data const *file, lin i)
++{
++  return i + file->prefix_lines + 1;
++}
++
++/* Translate a line number range.  This is always done for printing,
++   so for convenience translate to long int rather than lin, so that the
++   caller can use printf with "%ld" without casting.  */
++
++void
++translate_range (struct file_data const *file,
++		 lin a, lin b,
++		 long int *aptr, long int *bptr)
++{
++  *aptr = translate_line_number (file, a - 1) + 1;
++  *bptr = translate_line_number (file, b + 1) - 1;
++}
++
++/* Print a pair of line numbers with SEPCHAR, translated for file FILE.
++   If the two numbers are identical, print just one number.
++
++   Args A and B are internal line numbers.
++   We print the translated (real) line numbers.  */
++
++void
++print_number_range (char sepchar, struct file_data *file, lin a, lin b)
++{
++  long int trans_a, trans_b;
++  translate_range (file, a, b, &trans_a, &trans_b);
++
++  /* Note: we can have B < A in the case of a range of no lines.
++     In this case, we should print the line number before the range,
++     which is B.  */
++  if (trans_b > trans_a)
++    fprintf (outfile, "%ld%c%ld", trans_a, sepchar, trans_b);
++  else
++    fprintf (outfile, "%ld", trans_b);
++}
++
++/* Look at a hunk of edit script and report the range of lines in each file
++   that it applies to.  HUNK is the start of the hunk, which is a chain
++   of `struct change'.  The first and last line numbers of file 0 are stored in
++   *FIRST0 and *LAST0, and likewise for file 1 in *FIRST1 and *LAST1.
++   Note that these are internal line numbers that count from 0.
++
++   If no lines from file 0 are deleted, then FIRST0 is LAST0+1.
++
++   Return UNCHANGED if only ignorable lines are inserted or deleted,
++   OLD if lines of file 0 are deleted,
++   NEW if lines of file 1 are inserted,
++   and CHANGED if both kinds of changes are found. */
++
++enum changes
++analyze_hunk (struct change *hunk,
++	      lin *first0, lin *last0,
++	      lin *first1, lin *last1)
++{
++  struct change *next;
++  lin l0, l1;
++  lin show_from, show_to;
++  lin i;
++  bool trivial = ignore_blank_lines || ignore_regexp.fastmap;
++  size_t trivial_length = ignore_blank_lines - 1;
++    /* If 0, ignore zero-length lines;
++       if SIZE_MAX, do not ignore lines just because of their length.  */
++  bool skip_leading_white_space =
++    (ignore_blank_lines && IGNORE_SPACE_CHANGE <= ignore_white_space);
++
++  char const * const *linbuf0 = files[0].linbuf;  /* Help the compiler.  */
++  char const * const *linbuf1 = files[1].linbuf;
++
++  show_from = show_to = 0;
++
++  *first0 = hunk->line0;
++  *first1 = hunk->line1;
++
++  next = hunk;
++  do
++    {
++      l0 = next->line0 + next->deleted - 1;
++      l1 = next->line1 + next->inserted - 1;
++      show_from += next->deleted;
++      show_to += next->inserted;
++
++      for (i = next->line0; i <= l0 && trivial; i++)
++	{
++	  char const *line = linbuf0[i];
++	  char const *newline = linbuf0[i + 1] - 1;
++	  size_t len = newline - line;
++	  char const *p = line;
++	  if (skip_leading_white_space)
++	    while (isspace ((unsigned char) *p) && *p != '\n')
++	      p++;
++	  if (newline - p != trivial_length
++	      && (! ignore_regexp.fastmap
++		  || re_search (&ignore_regexp, line, len, 0, len, 0) < 0))
++	    trivial = 0;
++	}
++
++      for (i = next->line1; i <= l1 && trivial; i++)
++	{
++	  char const *line = linbuf1[i];
++	  char const *newline = linbuf1[i + 1] - 1;
++	  size_t len = newline - line;
++	  char const *p = line;
++	  if (skip_leading_white_space)
++	    while (isspace ((unsigned char) *p) && *p != '\n')
++	      p++;
++	  if (newline - p != trivial_length
++	      && (! ignore_regexp.fastmap
++		  || re_search (&ignore_regexp, line, len, 0, len, 0) < 0))
++	    trivial = 0;
++	}
++    }
++  while ((next = next->link) != 0);
++
++  *last0 = l0;
++  *last1 = l1;
++
++  /* If all inserted or deleted lines are ignorable,
++     tell the caller to ignore this hunk.  */
++
++  if (trivial)
++    return UNCHANGED;
++
++  return (show_from ? OLD : UNCHANGED) | (show_to ? NEW : UNCHANGED);
++}
++
++/* Concatenate three strings, returning a newly malloc'd string.  */
++
++char *
++concat (char const *s1, char const *s2, char const *s3)
++{
++  char *new = xmalloc (strlen (s1) + strlen (s2) + strlen (s3) + 1);
++  sprintf (new, "%s%s%s", s1, s2, s3);
++  return new;
++}
++
++/* Yield a new block of SIZE bytes, initialized to zero.  */
++
++void *
++zalloc (size_t size)
++{
++  void *p = xmalloc (size);
++  memset (p, 0, size);
++  return p;
++}
++
++/* Yield the newly malloc'd pathname
++   of the file in DIR whose filename is FILE.  */
++
++char *
++dir_file_pathname (char const *dir, char const *file)
++{
++  char const *base = base_name (dir);
++  bool omit_slash = !*base || base[strlen (base) - 1] == '/';
++  return concat (dir, "/" + omit_slash, file);
++}
++
++void
++debug_script (struct change *sp)
++{
++  fflush (stdout);
++
++  for (; sp; sp = sp->link)
++    {
++      long int line0 = sp->line0;
++      long int line1 = sp->line1;
++      long int deleted = sp->deleted;
++      long int inserted = sp->inserted;
++      fprintf (stderr, "%3ld %3ld delete %ld insert %ld\n",
++	       line0, line1, deleted, inserted);
++    }
++
++  fflush (stderr);
++}

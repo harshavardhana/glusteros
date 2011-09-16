@@ -1,0 +1,169 @@
+#!/usr/bin/python
+
+import os, string, sys, getopt
+from Gluster.GFrontEnd import dialog
+from Gluster.GTmp import Dir
+from Gluster import gmap
+
+dlg = dialog.Dialog ()
+
+def hardware_info ():
+    # Currently default way of installation is supported
+    return "default"
+
+def disk_info (disk):
+    
+    disk_name = os.popen ("udevadm info -q name -p %s" % disk).readline().strip()
+    disk_model = os.popen ("udevadm info -q all -p %s | grep 'ID_MODEL' | cut -f2 -d'='" % disk).readline().strip()
+    disk_size = os.popen ("udevadm info -a -p %s | grep 'SYSFS{size}' | sed  's/[A-Za-z{}= \"]//g'" % disk).readline().strip()
+
+    return (disk_name, disk_model, disk_size)
+    
+def check_disks ():
+    
+    disk_array = []
+    fd = os.popen ("echo /sys/block/* | tr ' ' '\n' | grep -v loop | grep -v ram | grep -v scd | grep -v sr")
+    disks = fd.readlines()
+    fd.close()
+    for disk in disks:
+        (name,model,size) = disk_info (disk.strip())
+        if not name and not model:
+            break
+        disk_array.append ((name.strip (), "%s  %s" % (model.strip(), size.strip())))
+    if disk_array == []:
+        disk_array.append (('<no disk>', ''))
+    return disk_array
+
+def choose_disk ():
+
+    
+    (ret, disk) = dlg.menu ('Select the disk for GlusterSP install',
+                          title='[ Choice One ]',
+                          choices=check_disks (),
+                          nocancel=True)
+    if ret != 0:
+        return
+
+    return disk
+                            
+def automatic_install ():
+    known_hardware = os.popen ("ls /etc/installer/auto/ | grep -v default").readlines()
+    hw = hardware_info ()
+    if hw in known_hardware:
+    	dlg.yesno ('Found Known Hardware %s' % hw)
+        return hw
+    else:
+        try:
+            ret = dlg.yesno ('Found Known Hardware, Running %s installation' % hw, timeout=5)
+            
+            if ret != 0:
+                return
+
+        except dialog.DialogError:
+            hw = "default"
+
+    install_disk = choose_disk ()
+    if install_disk == '<no disk>':
+        dlg.infobox ("No disks probed on the system\nExiting\n", title='[ Error ]', height=4, width=35)
+        return
+
+    install_disk = "/dev/%s" % install_disk
+    
+    image = choose_image ()
+
+    if image == '<no image>':
+        dlg.infobox ("No images found on the system\nExiting\n", title='[ Error ]', height=4, width=35)
+        return
+
+    image = "/images/%s.tgz" % image
+
+    if ipconfig ():
+        dlg.infobox ("Problems found during IPconfig\nExiting\n", title='[ Error ]', height=4, width=35)
+        return
+
+    #if not dlg.msgbox ("Enter the password for root",
+    #                   title='[ Password ]', height=5, width=35):
+    #    if password ():
+    #        dlg.infobox ("Password tokens not updated\nExiting\n", title='[ Error ]', height=4, width=35)
+    #        return
+        
+
+    ret = dlg.yesno ('Starting auto installation last confirmation, Do you wish to continue?')
+    if ret != 0:
+        return
+    
+    if os.system ("/etc/installer/auto/%s/install %s %s >> /var/log/install.log 2>&1" % (hw, image, install_disk)):
+        dlg.infobox ("Problems during installation\nExiting\n", title='[ Error ]', height=4, width=35)
+        return 
+    
+    return hw
+    
+def choose_image ():
+
+    image = os.popen ('ls /images/ | sed s/.tgz//g').readline().strip()
+
+    image_size = os.popen ("du -sh /images/%s.tgz | awk {'print $1'}" % image).readline().strip()
+    if not image and not image_size:
+        return '<no image>'
+    else:
+        dlg.msgbox ("Found %s of size %s, Install?" % (image, image_size), title='[ Image ]')
+        return image
+
+    # should not be here
+def type_of_install ():
+    sel = 'auto'
+
+    (ret, sel) = dlg.menu ('Choose type of Installation',
+                           title="[ GDesktop ]",
+                           choices=[("auto", "Automatic Installation"),
+                                   ("custom", "Customized Installation")],
+                           ok_label=' Select ',
+                           nocancel=True)
+    if ret != 0:
+        return ("1", None)
+                           
+    return (ret, sel)
+
+def ipconfig ():
+
+    if os.system ("/bin/config_network.sh"):
+        return "1"
+    
+    return 
+
+def password ():
+
+    if os.system ("passwd root") > 0:
+        return "1"
+    
+    return
+
+def custom_install ():
+    hw = "default"
+    dlg.msgbox ('No Custom Installation Support Yet',
+                height=5,
+                width=50)
+    return hw
+    
+def main ():
+    (ret, sel) = type_of_install ()
+    if ret == "1":
+        sys.exit (1)
+    
+    if sel == "auto":
+        hw = automatic_install ()
+    elif sel == "custom":
+        hw = custom_install ()
+
+    if sel == "custom":
+         return
+    
+    if hw:
+        dlg.msgbox ("Installation completed successfully",
+                    title='[ Success ]')
+        ret = dlg.yesno ('Do you wish to Reboot or continue using the system?')
+        if ret != 0:
+           return
+        os.system("init 6")
+
+main ()

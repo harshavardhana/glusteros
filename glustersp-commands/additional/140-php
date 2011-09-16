@@ -1,0 +1,33 @@
+#!/bin/bash
+set +h
+set -e
+
+cd $PKGDIR
+sed -i 's/const char \*errpfx,/const DB_ENV *dbenv, & const/' \
+    ext/dba/dba_db4.c
+export LDFLAGS="-L/lib64"
+./configure --prefix=/usr \
+    --sysconfdir=/etc \
+    --with-apxs2 \
+    --enable-force-cgi-redirect \
+    --enable-discard-path \
+    --with-config-file-path=/etc \
+    --with-zlib \
+    --enable-bcmath \
+    --with-bz2 \
+    --enable-calendar \
+    --enable-dba \
+    --enable-exif \
+    --enable-ftp \
+    --without-gettext \
+    --enable-mbstring \
+    --with-ncurses \
+    --with-readline 
+
+LDFLAGS="-L/lib64" make
+make install 
+install -v -m644 php.ini-recommended /etc/php.ini
+sed -i 's@php/includes"@&\ninclude_path = ".:/usr/lib/php"@' \
+    /etc/php.ini
+
+exit

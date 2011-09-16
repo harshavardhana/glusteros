@@ -1,0 +1,12 @@
+#!/bin/bash
+set +h
+set -e
+
+cd $PKGDIR
+mkdir -v build
+cd build
+../configure --prefix=/tools
+make
+make install-libs
+chmod -v u+w /tools/lib/{libblkid,libcom_err,libe2p,libext2fs,libss,libuuid}.a
+exit

@@ -1,0 +1,20 @@
+#!/bin/bash
+set +h
+set -e
+
+cd $PKGDIR
+tar -jxf ../mpfr-2.3.2.tar.bz2
+mv mpfr-2.3.2 mpfr
+tar -jxf ../gmp-4.2.4.tar.bz2
+mv gmp-4.2.4 gmp
+mkdir -v ../gcc-build
+cd ../gcc-build
+CC="gcc -B/usr/bin/" ../gcc-4.3.2/configure --prefix=/tools \
+    --with-local-prefix=/tools --disable-nls --disable-shared --disable-libssp \
+    --enable-languages=c --disable-multilib
+make
+make install
+ln -vfs libgcc.a `gcc -print-libgcc-file-name | \
+    sed 's/libgcc/&_eh/'`
+ln -vfs gcc /tools/bin/cc
+exit

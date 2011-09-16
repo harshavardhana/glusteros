@@ -1,0 +1,17 @@
+#!/bin/bash
+set +h
+set -e
+
+cd $PKGDIR
+patch -Np1 -i ../coreutils-6.12-uname-1.patch
+patch -Np1 -i ../coreutils-6.12-old_build_kernel-1.patch
+patch -Np1 -i ../coreutils-6.12-i18n-2.patch
+./configure --prefix=/usr --enable-install-program=hostname --enable-no-install-program=kill,uptime
+make
+make install
+mv -v /usr/bin/{cat,chgrp,chmod,chown,cp,date,dd,df,echo} /bin
+mv -v /usr/bin/{false,hostname,ln,ls,mkdir,mknod,mv,pwd,readlink,rm} /bin
+mv -v /usr/bin/{rmdir,stty,sync,true,uname} /bin
+mv -v /usr/bin/chroot /usr/sbin
+mv -v /usr/bin/{head,sleep,nice} /bin
+exit

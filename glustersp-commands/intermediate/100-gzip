@@ -1,0 +1,12 @@
+#!/bin/bash
+set +h
+set -e
+
+cd $PKGDIR
+sed -i 's/futimens/gl_&/' gzip.c lib/utimens.{c,h}
+./configure --prefix=/usr --bindir=/bin
+make
+make install
+mv -v /bin/{gzexe,uncompress,zcmp,zdiff,zegrep} /usr/bin
+mv -v /bin/{zfgrep,zforce,zgrep,zless,zmore,znew} /usr/bin
+exit

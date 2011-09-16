@@ -1,0 +1,6 @@
+#!/bin/bash
+set +h
+set -e
+
+cd $PKGDIR
+exit

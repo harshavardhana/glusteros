@@ -1,0 +1,121 @@
+#!/bin/sh
+
+IMAGE="$1"
+DISK="$2"
+ARCH=$(uname -m)
+
+echo "Partitioning ..."
+
+parted -s -- ${DISK} mklabel gpt
+
+parted -s -- ${DISK} mkpart primary ext3 0M 1024M
+parted -s -- ${DISK} mkpart primary linux-swap 1024M 5120M 
+parted -s -- ${DISK} mkpart primary ext3 5120M -1M
+
+echo "Partitioning process complete"
+sleep 5
+
+echo "Formatting ..." 
+
+mkfs.ext3 ${DISK}1
+tune2fs -L "/" ${DISK}1
+
+echo "Filesystem for '/' is ready"
+
+mkswap -L "SWAP" ${DISK}2
+
+echo "Filesystem for swap is ready"
+
+sleep 2
+
+echo "Starting Gluster Storage Platform installation on '/' ..."
+
+mkdir -p /tmp/installdir/
+mount ${DISK}1 /tmp/installdir/
+
+tar -xzf ${IMAGE} -C /tmp/installdir/
+
+echo "Gluster Storage Platform installation finished"
+sleep 2
+
+echo "Updating fstab for the installation.."
+cp -f /tmp/installdir/etc/fstab /tmp/installdir/etc/fstab.gos.orig
+cat > /tmp/installdir/etc/fstab <<EOF
+
+# Edited by GDesktop Installer
+LABEL=/        /            ext3   defaults        1     1
+proc           /proc        proc   defaults        0     0
+sysfs          /sys         sysfs  defaults        0     0
+devpts         /dev/pts     devpts gid=4,mode=620  0     0
+tmpfs          /dev/shm     tmpfs  defaults        0     0
+LABEL=SWAP     swap         swap   defaults        0     0
+EOF
+
+echo "Updating /etc/passwd file .."
+cp -f /etc/passwd /tmp/installdir/etc/passwd
+
+echo "Updating grub configuration file .."
+
+mkdir -p /tmp/installdir/boot/grub
+cp -v /usr/lib/grub/x86_64-unknown/* /tmp/installdir/boot/grub
+
+cat > /tmp/installdir/boot/grub/menu.lst <<EOF
+# Begin /boot/grub/menu.lst
+
+# By default boot the first menu entry.
+default 0
+
+# Allow 30 seconds before booting the default.
+timeout 30
+
+# Use prettier colors.
+color green/black light-green/black
+
+title Gluster Storage Platform (Alpha) 2009
+root (hd0,0)
+kernel /boot/linux.glusteros.${ARCH}-2.6.27.4 root=LABEL=/
+EOF
+
+echo "Updating IP configuration .. "
+name=$(hostname)
+cp -f /tmp/installdir/etc/sysconfig/network /tmp/installdir/etc/sysconfig/network.gos.orig
+cat > /tmp/installdir/etc/sysconfig/network << EOF
+# Edited by GDesktop Installer
+HOSTNAME=$name
+EOF
+
+iface=$(ip link list | grep UP | grep -v UNKNOWN | cut -f2 -d':' | cut -f2 -d' ')
+ip=$(ip address list dev ${iface} | sed -n -e 's/^.*inet \([^ ]*\).*$/\1/p' | cut -f1 -d'/')
+bcast=$(ip address list dev ${iface} | sed -n -e 's/^.*brd \([^ ]*\).*$/\1/p' | tail -1)
+gw=$(ip route list dev ${iface} | sed -n -e 's/default via \([^ ]*\).*/\1/p' | head -1)
+pfx=$(ip address list dev ${iface} | sed -n -e 's/^.*inet \([^ ]*\).*$/\1/p' | cut -f2 -d'/')
+
+cp -f /tmp/installdir/etc/sysconfig/network-devices/ifconfig.$iface/ipv4 /tmp/installdir/etc/sysconfig/network-devices/ifconfig.$iface/ipv4.gos.orig
+cat > /tmp/installdir/etc/sysconfig/network-devices/ifconfig.$iface/ipv4 << EOF
+# Edited by GDesktop Installer
+ONBOOT=yes
+SERVICE=ipv4-static
+IP=$ip
+GATEWAY=$gw
+PREFIX=$pfx
+BROADCAST=$bcast
+EOF
+
+cp -f /tmp/installdir/etc/hosts /tmp/installdir/etc/hosts.gos.orig
+cat > /tmp/installdir/etc/hosts << EOF
+# Edited by GDesktop Installer
+127.0.0.1        localhost.localdomain   localhost
+$ip              $name
+EOF
+
+umount /tmp/installdir
+
+rmdir /tmp/installdir
+
+echo "Installing Grub ... on ${DISK}" 
+grub <<EOF
+setup (hd0)
+quit
+EOF
+
+exit

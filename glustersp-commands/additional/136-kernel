@@ -1,0 +1,15 @@
+#!/bin/bash
+set +h
+set -e
+
+cd $PKGDIR
+patch -p1 < ../squashfs3.4.patch
+cp ../config-$ARCH .config
+make -j 8 prepare ARCH=$ARCH
+make -j 8 modules ARCH=$ARCH
+make modules_install 
+make -j 8 bzImage ARCH=$ARCH
+cp -v arch/$ARCH/boot/bzImage /boot/linux.glusteros.$ARCH-2.6.27.4
+cp -v System.map /boot/System.map-2.6.27.4-$ARCH
+cp -v .config /boot/config-2.6.27.4-$ARCH
+exit

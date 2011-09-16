@@ -1,0 +1,14 @@
+#!/bin/bash
+set +h
+set -e
+
+cd $PKGDIR
+patch -Z -Np1 -i ../groff-1.18.1.4-debian_fixes-1.patch
+sed -i -e 's/2010/002D/' -e 's/2212/002D/' \
+    -e 's/2018/0060/' -e 's/2019/0027/' font/devutf8/R.proto
+PAGE=letter ./configure --prefix=/usr --enable-multibyte
+make
+make docdir=/usr/share/doc/groff-1.18.1.4 install
+ln -sv eqn /usr/bin/geqn
+ln -sv tbl /usr/bin/gtbl
+exit

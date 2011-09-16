@@ -1,0 +1,11 @@
+#!/bin/bash
+set +h
+set -e
+
+cd $PKGDIR
+
+./configure --prefix=/usr
+make
+make install DESTDIR=$REALROOT_PT
+
+exit

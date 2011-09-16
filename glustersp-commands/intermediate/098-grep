@@ -1,0 +1,14 @@
+#!/bin/bash
+set +h
+set -e
+
+cd $PKGDIR
+patch -Z -Np1 -i ../grep-2.5.3-debian_fixes-1.patch
+patch -Np1 -i ../grep-2.5.3-upstream_fixes-1.patch
+./configure --prefix=/usr \
+    --bindir=/bin \
+    --without-included-regex
+make
+make check || true
+make install
+exit

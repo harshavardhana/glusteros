@@ -1,0 +1,12 @@
+#!/bin/bash
+set +h
+set -e
+
+cd $PKGDIR
+sed -i -e '197,+1d' \
+       -e '189,+1d' \
+       -e 's/token$/tokens/' doc/file.man
+./configure --prefix=/usr
+make
+make install
+exit

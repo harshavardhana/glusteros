@@ -1,0 +1,16 @@
+#!/bin/bash
+set +h
+set -e
+
+cd $PKGDIR
+patch -Np1 -i ../kbd-1.14.1-backspace-1.patch
+sed -i -e '1i KEYCODES_PROGS = @KEYCODES_PROGS@' \
+    -e '1i RESIZECONS_PROGS = @RESIZECONS_PROGS@' src/Makefile.in
+var=OPTIONAL_PROGS
+sed -i "s/ifdef $var/ifeq (\$($var),yes)/" man/Makefile.in
+unset var
+./configure --prefix=/usr --datadir=/lib/kbd
+make
+make install
+mv -v /usr/bin/{kbd_mode,loadkeys,openvt,setfont} /bin
+exit
